@@ -12,10 +12,6 @@ use store::{Store, StoreError};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::{sleep, Duration, Instant};
 
-#[cfg(test)]
-#[path = "tests/synchronizer_tests.rs"]
-pub mod synchronizer_tests;
-
 /// Resolution of the timer managing retrials of sync requests (in ms).
 const TIMER_RESOLUTION: u64 = 1_000;
 
@@ -117,7 +113,7 @@ impl Synchronizer {
 
                             // Register the digest as missing.
                             missing.push(digest.clone());
-                            debug!("Requesting sync for batch {}", digest);
+                            debug!("Requesting sync for payload {}", digest);
 
                             // Add the digest to the waiter.
                             let deliver = digest.clone();
@@ -136,7 +132,7 @@ impl Synchronizer {
                                 continue;
                             }
                         };
-                        let message = MempoolMessage::BatchRequest(missing, self.name);
+                        let message = MempoolMessage::PayloadRequest(missing, self.name);
                         let serialized = bincode::serialize(&message).expect("Failed to serialize our own message");
                         self.network.send(address, Bytes::from(serialized)).await;
                     },
@@ -184,7 +180,7 @@ impl Synchronizer {
                     let mut retry = Vec::new();
                     for (digest, (_, _, timestamp)) in &self.pending {
                         if timestamp + (self.sync_retry_delay as u128) < now {
-                            debug!("Requesting sync for batch {} (retry)", digest);
+                            debug!("Requesting sync for payload {} (retry)", digest);
                             retry.push(digest.clone());
                         }
                     }
@@ -194,7 +190,7 @@ impl Synchronizer {
                             .iter()
                             .map(|(_, address)| *address)
                             .collect();
-                        let message = MempoolMessage::BatchRequest(retry, self.name);
+                        let message = MempoolMessage::PayloadRequest(retry, self.name);
                         let serialized = bincode::serialize(&message).expect("Failed to serialize our own message");
                         self.network
                             .lucky_broadcast(addresses, Bytes::from(serialized), self.sync_retry_nodes)

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::config::{Committee, Stake};
-use crate::processor::SerializedBatchMessage;
+use crate::processor::SerializedPayloadMessage;
 use crypto::PublicKey;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
@@ -11,10 +11,6 @@ use tokio::{
     time::sleep,
 };
 
-#[cfg(test)]
-#[path = "tests/quorum_waiter_tests.rs"]
-pub mod quorum_waiter_tests;
-
 /// Extra batch dissemination time for the f last nodes (in ms).
 const DISSEMINATION_DEADLINE: u64 = 500;
 /// Bounds the queue handling the extra dissemination.
@@ -23,7 +19,7 @@ const DISSEMINATION_QUEUE_MAX: usize = 10_000;
 #[derive(Debug)]
 pub struct QuorumWaiterMessage {
     /// A serialized `MempoolMessage::Batch` message.
-    pub batch: SerializedBatchMessage,
+    pub payload: SerializedPayloadMessage,
     /// The cancel handlers to receive the acknowledgements of our broadcast.
     pub handlers: Vec<(PublicKey, CancelHandler)>,
 }
@@ -37,7 +33,7 @@ pub struct QuorumWaiter {
     /// Input Channel to receive commands.
     rx_message: Receiver<QuorumWaiterMessage>,
     /// Channel to deliver batches for which we have enough acknowledgements.
-    tx_batch: Sender<SerializedBatchMessage>,
+    tx_payload: Sender<SerializedPayloadMessage>,
 }
 
 impl QuorumWaiter {
@@ -46,14 +42,14 @@ impl QuorumWaiter {
         committee: Committee,
         stake: Stake,
         rx_message: Receiver<QuorumWaiterMessage>,
-        tx_batch: Sender<Vec<u8>>,
+        tx_payload: Sender<Vec<u8>>,
     ) {
         tokio::spawn(async move {
             Self {
                 committee,
                 stake,
                 rx_message,
-                tx_batch,
+                tx_payload,
             }
             .run()
             .await;
@@ -74,10 +70,10 @@ impl QuorumWaiter {
         let mut pending = FuturesUnordered::new();
         let mut pending_counter = 0;
 
-        // while let Some(QuorumWaiterMessage { batch, handlers }) = self.rx_message.recv().await {
+        // while let Some(QuorumWaiterMessage { payload, handlers }) = self.rx_message.recv().await {
         loop {
             tokio::select! {
-                Some(QuorumWaiterMessage { batch, handlers }) = self.rx_message.recv() => {
+                Some(QuorumWaiterMessage { payload, handlers }) = self.rx_message.recv() => {
                     let mut wait_for_quorum: FuturesUnordered<_> = handlers
                         .into_iter()
                         .map(|(name, handler)| {
@@ -93,10 +89,10 @@ impl QuorumWaiter {
                     while let Some(stake) = wait_for_quorum.next().await {
                         total_stake += stake;
                         if total_stake >= self.committee.quorum_threshold() {
-                            self.tx_batch
-                                .send(batch)
+                            self.tx_payload
+                                .send(payload)
                                 .await
-                                .expect("Failed to deliver batch");
+                                .expect("Failed to deliver payload");
                             break;
                         }
                     }

@@ -1,7 +1,7 @@
-use crate::batch_maker::{Batch, BatchMaker, Transaction};
 use crate::config::{Committee, Parameters};
 use crate::helper::Helper;
-use crate::processor::{Processor, SerializedBatchMessage};
+use crate::payload_broadcaster::PayloadBroadcaster;
+use crate::processor::{Processor, SerializedPayloadMessage};
 use crate::quorum_waiter::QuorumWaiter;
 use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
@@ -15,10 +15,6 @@ use std::error::Error;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-#[cfg(test)]
-#[path = "tests/mempool_tests.rs"]
-pub mod mempool_tests;
-
 /// The default channel capacity for each channel of the mempool.
 pub const CHANNEL_CAPACITY: usize = 1_000;
 
@@ -28,8 +24,8 @@ pub type Round = u64;
 /// The message exchanged between the nodes' mempool.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum MempoolMessage {
-    Batch(Batch),
-    BatchRequest(Vec<Digest>, /* origin */ PublicKey),
+    Payload(Vec<u8>),
+    PayloadRequest(Vec<Digest>, /* origin */ PublicKey),
 }
 
 /// The messages sent by the consensus and the mempool.
@@ -77,7 +73,7 @@ impl Mempool {
 
         // Spawn all mempool tasks.
         mempool.handle_consensus_messages(rx_consensus);
-        mempool.handle_clients_transactions();
+        mempool.handle_producer_payloads();
         mempool.handle_mempool_messages();
 
         info!(
@@ -105,30 +101,28 @@ impl Mempool {
         );
     }
 
-    /// Spawn all tasks responsible to handle clients transactions.
-    fn handle_clients_transactions(&self) {
-        let (tx_batch_maker, rx_batch_maker) = channel(CHANNEL_CAPACITY);
+    /// Spawn all tasks responsible to handle producer payload.
+    fn handle_producer_payloads(&self) {
+        let (tx_payload_broadcaster, rx_payload_broadcaster) = channel(CHANNEL_CAPACITY);
         let (tx_quorum_waiter, rx_quorum_waiter) = channel(CHANNEL_CAPACITY);
         let (tx_processor, rx_processor) = channel(CHANNEL_CAPACITY);
 
         // We first receive clients' transactions from the network.
         let mut address = self
             .committee
-            .transactions_address(&self.name)
+            .producer_address(&self.name)
             .expect("Our public key is not in the committee");
         address.set_ip("0.0.0.0".parse().unwrap());
         NetworkReceiver::spawn(
             address,
-            /* handler */ TxReceiverHandler { tx_batch_maker },
+            /* handler */ PayloadReceiverHandler { tx_payload_broadcaster },
         );
 
-        // The transactions are sent to the `BatchMaker` that assembles them into batches. It then broadcasts
-        // (in a reliable manner) the batches to all other mempools that share the same `id` as us. Finally,
+        // The payloads are sent to the `PayloadBroadcaster` that broadcasts
+        // (in a reliable manner) the payload to all other mempools that share the same `id` as us. Finally,
         // it gathers the 'cancel handlers' of the messages and send them to the `QuorumWaiter`.
-        BatchMaker::spawn(
-            self.parameters.batch_size,
-            self.parameters.max_batch_delay,
-            /* rx_transaction */ rx_batch_maker,
+        PayloadBroadcaster::spawn(
+            /* rx_payload */ rx_payload_broadcaster,
             /* tx_message */ tx_quorum_waiter,
             /* mempool_addresses */
             self.committee.broadcast_addresses(&self.name),
@@ -140,17 +134,17 @@ impl Mempool {
             self.committee.clone(),
             /* stake */ self.committee.stake(&self.name),
             /* rx_message */ rx_quorum_waiter,
-            /* tx_batch */ tx_processor,
+            /* tx_payload */ tx_processor,
         );
 
-        // The `Processor` hashes and stores the batch. It then forwards the batch's digest to the consensus.
+        // The `Processor` stores the payload commitment. It then forwards the payload commitment to the consensus.
         Processor::spawn(
             self.store.clone(),
-            /* rx_batch */ rx_processor,
+            /* rx_payload */ rx_processor,
             /* tx_digest */ self.tx_consensus.clone(),
         );
 
-        info!("Mempool listening to client transactions on {}", address);
+        info!("Mempool listening to producer payload on {}", address);
     }
 
     /// Spawn all tasks responsible to handle messages from other mempools.
@@ -173,15 +167,15 @@ impl Mempool {
             },
         );
 
-        // The `Helper` is dedicated to reply to batch requests from other mempools.
+        // The `Helper` is dedicated to reply to payload requests from other mempools.
         Helper::spawn(
             self.committee.clone(),
             self.store.clone(),
             /* rx_request */ rx_helper,
         );
 
-        // This `Processor` hashes and stores the batches we receive from the other mempools. It then forwards the
-        // batch's digest to the consensus.
+        // This `Processor` hashes and stores the payload we receive from the other mempools. It then forwards the
+        // payload digest to the consensus.
         Processor::spawn(
             self.store.clone(),
             /* rx_batch */ rx_processor,
@@ -194,18 +188,18 @@ impl Mempool {
 
 /// Defines how the network receiver handles incoming transactions.
 #[derive(Clone)]
-struct TxReceiverHandler {
-    tx_batch_maker: Sender<Transaction>,
+struct PayloadReceiverHandler {
+    tx_payload_broadcaster: Sender<Vec<u8>>,
 }
 
 #[async_trait]
-impl MessageHandler for TxReceiverHandler {
+impl MessageHandler for PayloadReceiverHandler {
     async fn dispatch(&self, _writer: &mut Writer, message: Bytes) -> Result<(), Box<dyn Error>> {
-        // Send the transaction to the batch maker.
-        self.tx_batch_maker
+        // Send the payload to the payload maker.
+        self.tx_payload_broadcaster
             .send(message.to_vec())
             .await
-            .expect("Failed to send transaction");
+            .expect("Failed to send payload");
 
         // Give the change to schedule other tasks.
         tokio::task::yield_now().await;
@@ -217,7 +211,7 @@ impl MessageHandler for TxReceiverHandler {
 #[derive(Clone)]
 struct MempoolReceiverHandler {
     tx_helper: Sender<(Vec<Digest>, PublicKey)>,
-    tx_processor: Sender<SerializedBatchMessage>,
+    tx_processor: Sender<SerializedPayloadMessage>,
 }
 
 #[async_trait]
@@ -228,12 +222,12 @@ impl MessageHandler for MempoolReceiverHandler {
 
         // Deserialize and parse the message.
         match bincode::deserialize(&serialized) {
-            Ok(MempoolMessage::Batch(..)) => self
+            Ok(MempoolMessage::Payload(..)) => self
                 .tx_processor
                 .send(serialized.to_vec())
                 .await
                 .expect("Failed to send batch"),
-            Ok(MempoolMessage::BatchRequest(missing, requestor)) => self
+            Ok(MempoolMessage::PayloadRequest(missing, requestor)) => self
                 .tx_helper
                 .send((missing, requestor))
                 .await

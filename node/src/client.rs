@@ -9,7 +9,7 @@ use log::{info, warn};
 use rand::Rng;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
-use tokio::time::{interval, sleep, Duration, Instant};
+use tokio::time::{interval, sleep, Duration};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 #[derive(Parser)]
@@ -46,8 +46,8 @@ async fn main() -> Result<()> {
         .init();
 
     info!("Node address: {}", cli.target);
-    info!("Transactions size: {} B", cli.size);
-    info!("Transactions rate: {} tx/s", cli.rate);
+    info!("Payload commitment size: {} B", cli.size);
+    info!("Payload commitment rate: {} payload/s", cli.rate);
     let client = Client {
         target: cli.target,
         size: cli.size,
@@ -73,13 +73,13 @@ struct Client {
 
 impl Client {
     pub async fn send(&self) -> Result<()> {
-        const PRECISION: u64 = 20; // Sample precision.
+        const PRECISION: u64 = 1; // Sample precision.
         const BURST_DURATION: u64 = 1000 / PRECISION;
 
-        // The transaction size must be at least 16 bytes to ensure all txs are different.
+        // The payload commitment size must be at least 16 bytes to ensure all commitment are different.
         if self.size < 16 {
             return Err(anyhow::Error::msg(
-                "Transaction size must be at least 9 bytes",
+                "payload commitment size must be at least 16 bytes",
             ));
         }
 
@@ -90,7 +90,7 @@ impl Client {
 
         // Submit all transactions.
         let burst = self.rate / PRECISION;
-        let mut tx = BytesMut::with_capacity(self.size);
+        let mut payload_commitment = BytesMut::with_capacity(self.size);
         let mut counter = 0;
         let mut r = rand::thread_rng().gen();
         let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
@@ -98,38 +98,26 @@ impl Client {
         tokio::pin!(interval);
 
         // NOTE: This log entry is used to compute performance.
-        info!("Start sending transactions");
+        info!("Start sending payload commitment");
 
         'main: loop {
             interval.as_mut().tick().await;
-            let now = Instant::now();
+            for _ in 0..burst {
+                // NOTE: This log entry is used to compute performance.
+                info!("Sending payload commitment {}", counter);
 
-            for x in 0..burst {
-                if x == counter % burst {
-                    // NOTE: This log entry is used to compute performance.
-                    info!("Sending sample transaction {}", counter);
-
-                    tx.put_u8(0u8); // Sample txs start with 0.
-                    tx.put_u64(counter); // This counter identifies the tx.
-                } else {
-                    r += 1;
-
-                    tx.put_u8(1u8); // Standard txs start with 1.
-                    tx.put_u64(r); // Ensures all clients send different txs.
-                };
-                tx.resize(self.size, 0u8);
-                let bytes = tx.split().freeze();
+                payload_commitment.put_u64(counter); // This counter identifies the payload commitment.
+                payload_commitment.put_u64(r); // Ensures all clients send different payload commitments.
+                r += 1;
+                payload_commitment.resize(self.size, 0u8);
+                let bytes = payload_commitment.split().freeze();
 
                 if let Err(e) = transport.send(bytes).await {
-                    warn!("Failed to send transaction: {}", e);
+                    warn!("Failed to send payload commitment: {}", e);
                     break 'main;
                 }
+                counter += 1;
             }
-            if now.elapsed().as_millis() > BURST_DURATION as u128 {
-                // NOTE: This log entry is used to compute performance.
-                warn!("Transaction rate too high for this client");
-            }
-            counter += 1;
         }
         Ok(())
     }

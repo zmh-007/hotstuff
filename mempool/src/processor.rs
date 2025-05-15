@@ -5,12 +5,8 @@ use std::convert::TryInto;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-#[cfg(test)]
-#[path = "tests/processor_tests.rs"]
-pub mod processor_tests;
-
 /// Indicates a serialized `MempoolMessage::Batch` message.
-pub type SerializedBatchMessage = Vec<u8>;
+pub type SerializedPayloadMessage = Vec<u8>;
 
 /// Hashes and stores batches, it then outputs the batch's digest.
 pub struct Processor;
@@ -20,17 +16,17 @@ impl Processor {
         // The persistent storage.
         mut store: Store,
         // Input channel to receive batches.
-        mut rx_batch: Receiver<SerializedBatchMessage>,
-        // Output channel to send out batches' digests.
+        mut rx_payload: Receiver<SerializedPayloadMessage>,
+        // Output channel to send out payload' digests.
         tx_digest: Sender<Digest>,
     ) {
         tokio::spawn(async move {
-            while let Some(batch) = rx_batch.recv().await {
-                // Hash the batch.
-                let digest = Digest(Sha512::digest(&batch).as_slice()[..32].try_into().unwrap());
+            while let Some(payload) = rx_payload.recv().await {
+                // Hash the payload.
+                let digest = Digest(Sha512::digest(&payload).as_slice()[..32].try_into().unwrap());
 
-                // Store the batch.
-                store.write(digest.to_vec(), batch).await;
+                // Store the payload.
+                store.write(digest.to_vec(), payload).await;
 
                 tx_digest.send(digest).await.expect("Failed to send digest");
             }

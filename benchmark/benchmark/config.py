@@ -47,7 +47,7 @@ class Committee:
             node[n] = {
                 'name': n,
                 'stake': 1,
-                'transactions_address': f,
+                'producer_address': f,
                 'mempool_address': m
             }
         return {'authorities': node, 'epoch': 1}
@@ -72,7 +72,7 @@ class Committee:
         names = [x['name'] for x in consensus_authorities]
         consensus_addr = [x['address'] for x in consensus_authorities]
         transactions_addr = [
-            x['transactions_address'] for x in mempool_authorities
+            x['producer_address'] for x in mempool_authorities
         ]
         mempool_addr = [x['mempool_address'] for x in mempool_authorities]
         return cls(names, consensus_addr, transactions_addr, mempool_addr)

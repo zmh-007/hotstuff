@@ -41,13 +41,10 @@ class LogParser:
                 results = p.map(self._parse_nodes, nodes)
         except (ValueError, IndexError) as e:
             raise ParseError(f'Failed to parse node logs: {e}')
-        proposals, commits, sizes, self.received_samples, timeouts, self.configs \
+        proposals, commits, self.received_samples, timeouts, self.configs \
             = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
-        self.sizes = {
-            k: v for x in sizes for k, v in x.items() if k in self.commits
-        }
         self.timeouts = max(timeouts)
 
         # Check whether clients missed their target rate.
@@ -74,15 +71,15 @@ class LogParser:
         if search(r'Error', log) is not None:
             raise ParseError('Client(s) panicked')
 
-        size = int(search(r'Transactions size: (\d+)', log).group(1))
-        rate = int(search(r'Transactions rate: (\d+)', log).group(1))
+        size = int(search(r'Payload commitment size: (\d+)', log).group(1))
+        rate = int(search(r'Payload commitment rate: (\d+)', log).group(1))
 
         tmp = search(r'\[(.*Z) .* Start ', log).group(1)
         start = self._to_posix(tmp)
 
         misses = len(findall(r'rate too high', log))
 
-        tmp = findall(r'\[(.*Z) .* sample transaction (\d+)', log)
+        tmp = findall(r'\[(.*Z) .* payload commitment (\d+)', log)
         samples = {int(s): self._to_posix(t) for t, s in tmp}
 
         return size, rate, start, misses, samples
@@ -99,10 +96,7 @@ class LogParser:
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
         commits = self._merge_results([tmp])
 
-        tmp = findall(r'Batch ([^ ]+) contains (\d+) B', log)
-        sizes = {d: int(s) for d, s in tmp}
-
-        tmp = findall(r'Batch ([^ ]+) contains sample tx (\d+)', log)
+        tmp = findall(r'Hash ([^ ]+) contains payload (\d+)', log)
         samples = {int(s): d for d, s in tmp}
 
         tmp = findall(r'.* WARN .* Timeout', log)
@@ -129,44 +123,18 @@ class LogParser:
                 'sync_retry_nodes': int(
                     search(r'Sync retry nodes .* (\d+)', log).group(1)
                 ),
-                'batch_size': int(
-                    search(r'Batch size .* (\d+)', log).group(1)
-                ),
-                'max_batch_delay': int(
-                    search(r'Max batch delay .* (\d+)', log).group(1)
-                ),
             }
         }
 
-        return proposals, commits, sizes, samples, timeouts, configs
+        return proposals, commits, samples, timeouts, configs
 
     def _to_posix(self, string):
         x = datetime.fromisoformat(string.replace('Z', '+00:00'))
         return datetime.timestamp(x)
 
-    def _consensus_throughput(self):
-        if not self.commits:
-            return 0, 0, 0
-        start, end = min(self.proposals.values()), max(self.commits.values())
-        duration = end - start
-        bytes = sum(self.sizes.values())
-        bps = bytes / duration
-        tps = bps / self.size[0]
-        return tps, bps, duration
-
     def _consensus_latency(self):
         latency = [c - self.proposals[d] for d, c in self.commits.items()]
         return mean(latency) if latency else 0
-
-    def _end_to_end_throughput(self):
-        if not self.commits:
-            return 0, 0, 0
-        start, end = min(self.start), max(self.commits.values())
-        duration = end - start
-        bytes = sum(self.sizes.values())
-        bps = bytes / duration
-        tps = bps / self.size[0]
-        return tps, bps, duration
 
     def _end_to_end_latency(self):
         latency = []
@@ -181,8 +149,6 @@ class LogParser:
 
     def result(self):
         consensus_latency = self._consensus_latency() * 1000
-        consensus_tps, consensus_bps, _ = self._consensus_throughput()
-        end_to_end_tps, end_to_end_bps, duration = self._end_to_end_throughput()
         end_to_end_latency = self._end_to_end_latency() * 1000
 
         consensus_timeout_delay = self.configs[0]['consensus']['timeout_delay']
@@ -190,8 +156,6 @@ class LogParser:
         mempool_gc_depth = self.configs[0]['mempool']['gc_depth']
         mempool_sync_retry_delay = self.configs[0]['mempool']['sync_retry_delay']
         mempool_sync_retry_nodes = self.configs[0]['mempool']['sync_retry_nodes']
-        mempool_batch_size = self.configs[0]['mempool']['batch_size']
-        mempool_max_batch_delay = self.configs[0]['mempool']['max_batch_delay']
 
         return (
             '\n'
@@ -201,25 +165,18 @@ class LogParser:
             ' + CONFIG:\n'
             f' Faults: {self.faults} nodes\n'
             f' Committee size: {self.committee_size} nodes\n'
-            f' Input rate: {sum(self.rate):,} tx/s\n'
-            f' Transaction size: {self.size[0]:,} B\n'
-            f' Execution time: {round(duration):,} s\n'
+            f' Input rate: {sum(self.rate):,} payloads/s\n'
+            f' Payload commitment size: {self.size[0]:,} B\n'
             '\n'
             f' Consensus timeout delay: {consensus_timeout_delay:,} ms\n'
             f' Consensus sync retry delay: {consensus_sync_retry_delay:,} ms\n'
             f' Mempool GC depth: {mempool_gc_depth:,} rounds\n'
             f' Mempool sync retry delay: {mempool_sync_retry_delay:,} ms\n'
             f' Mempool sync retry nodes: {mempool_sync_retry_nodes:,} nodes\n'
-            f' Mempool batch size: {mempool_batch_size:,} B\n'
-            f' Mempool max batch delay: {mempool_max_batch_delay:,} ms\n'
             '\n'
             ' + RESULTS:\n'
-            f' Consensus TPS: {round(consensus_tps):,} tx/s\n'
-            f' Consensus BPS: {round(consensus_bps):,} B/s\n'
             f' Consensus latency: {round(consensus_latency):,} ms\n'
             '\n'
-            f' End-to-end TPS: {round(end_to_end_tps):,} tx/s\n'
-            f' End-to-end BPS: {round(end_to_end_bps):,} B/s\n'
             f' End-to-end latency: {round(end_to_end_latency):,} ms\n'
             '-----------------------------------------\n'
         )

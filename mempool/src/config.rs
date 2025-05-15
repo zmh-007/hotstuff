@@ -13,12 +13,6 @@ pub struct Parameters {
     /// Determine with how many nodes to sync when re-trying to send sync-request. These nodes
     /// are picked at random from the committee.
     pub sync_retry_nodes: usize,
-    /// The preferred batch size. The workers seal a batch of transactions when it reaches this size.
-    /// Denominated in bytes.
-    pub batch_size: usize,
-    /// The delay after which the workers seal a batch of transactions, even if `max_batch_size`
-    /// is not reached. Denominated in ms.
-    pub max_batch_delay: u64,
 }
 
 impl Default for Parameters {
@@ -27,8 +21,6 @@ impl Default for Parameters {
             gc_depth: 50,
             sync_retry_delay: 5_000,
             sync_retry_nodes: 3,
-            batch_size: 500_000,
-            max_batch_delay: 100,
         }
     }
 }
@@ -39,8 +31,6 @@ impl Parameters {
         info!("Garbage collection depth set to {} rounds", self.gc_depth);
         info!("Sync retry delay set to {} ms", self.sync_retry_delay);
         info!("Sync retry nodes set to {} nodes", self.sync_retry_nodes);
-        info!("Batch size set to {} B", self.batch_size);
-        info!("Max batch delay set to {} ms", self.max_batch_delay);
     }
 }
 
@@ -51,8 +41,8 @@ pub type Stake = u32;
 pub struct Authority {
     /// The voting power of this authority.
     pub stake: Stake,
-    /// Address to receive client transactions.
-    pub transactions_address: SocketAddr,
+    /// Address to receive producer payloads.
+    pub producer_address: SocketAddr,
     /// Address to receive messages from other nodes.
     pub mempool_address: SocketAddr,
 }
@@ -68,10 +58,10 @@ impl Committee {
         Self {
             authorities: info
                 .into_iter()
-                .map(|(name, stake, transactions_address, mempool_address)| {
+                .map(|(name, stake, producer_address, mempool_address)| {
                     let authority = Authority {
                         stake,
-                        transactions_address,
+                        producer_address,
                         mempool_address,
                     };
                     (name, authority)
@@ -95,8 +85,8 @@ impl Committee {
     }
 
     /// Returns the address to receive client transactions.
-    pub fn transactions_address(&self, name: &PublicKey) -> Option<SocketAddr> {
-        self.authorities.get(name).map(|x| x.transactions_address)
+    pub fn producer_address(&self, name: &PublicKey) -> Option<SocketAddr> {
+        self.authorities.get(name).map(|x| x.producer_address)
     }
 
     /// Returns the mempool addresses of a specific node.
