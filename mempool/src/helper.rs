@@ -5,6 +5,7 @@ use log::{error, warn};
 use network::SimpleSender;
 use store::Store;
 use tokio::sync::mpsc::Receiver;
+use crate::mempool::MempoolMessage;
 
 /// A task dedicated to help other authorities by replying to their batch requests.
 pub struct Helper {
@@ -52,7 +53,11 @@ impl Helper {
             // Reply to the request (the best we can).
             for digest in digests {
                 match self.store.read(digest.to_vec()).await {
-                    Ok(Some(data)) => self.network.send(address, Bytes::from(data)).await,
+                    Ok(Some(payload)) => {
+                        let message = MempoolMessage::Payload(payload);
+                        let serialized = bincode::serialize(&message).expect("Failed to serialize our stored payload");
+                        self.network.send(address, Bytes::from(serialized)).await
+                    },
                     Ok(None) => (),
                     Err(e) => error!("{}", e),
                 }
