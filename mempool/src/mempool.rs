@@ -1,7 +1,7 @@
 use crate::config::{Committee, Parameters};
 use crate::helper::Helper;
 use crate::payload_broadcaster::PayloadBroadcaster;
-use crate::processor::{Processor, SerializedPayloadMessage};
+use crate::processor::{Processor, PayloadMessage};
 use crate::quorum_waiter::QuorumWaiter;
 use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
@@ -141,7 +141,7 @@ impl Mempool {
         Processor::spawn(
             self.store.clone(),
             /* rx_payload */ rx_processor,
-            /* tx_digest */ self.tx_consensus.clone(),
+            /* tx_commitment */ self.tx_consensus.clone(),
         );
 
         info!("Mempool listening to producer payload on {}", address);
@@ -179,7 +179,7 @@ impl Mempool {
         Processor::spawn(
             self.store.clone(),
             /* rx_batch */ rx_processor,
-            /* tx_digest */ self.tx_consensus.clone(),
+            /* tx_commitment */ self.tx_consensus.clone(),
         );
 
         info!("Mempool listening to mempool messages on {}", address);
@@ -211,7 +211,7 @@ impl MessageHandler for PayloadReceiverHandler {
 #[derive(Clone)]
 struct MempoolReceiverHandler {
     tx_helper: Sender<(Vec<Digest>, PublicKey)>,
-    tx_processor: Sender<SerializedPayloadMessage>,
+    tx_processor: Sender<PayloadMessage>,
 }
 
 #[async_trait]
@@ -222,9 +222,9 @@ impl MessageHandler for MempoolReceiverHandler {
 
         // Deserialize and parse the message.
         match bincode::deserialize(&serialized) {
-            Ok(MempoolMessage::Payload(..)) => self
+            Ok(MempoolMessage::Payload(payload)) => self
                 .tx_processor
-                .send(serialized.to_vec())
+                .send(payload)
                 .await
                 .expect("Failed to send batch"),
             Ok(MempoolMessage::PayloadRequest(missing, requestor)) => self

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use bytes::BufMut as _;
-use bytes::BytesMut;
 use clap::Parser;
+use bytes::Bytes;
+use crypto::Digest;
 use env_logger::Env;
 use futures::future::join_all;
 use futures::sink::SinkExt as _;
@@ -11,6 +11,7 @@ use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::time::{interval, sleep, Duration};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use mempool::PayloadCommitment;
 
 #[derive(Parser)]
 #[clap(
@@ -90,9 +91,7 @@ impl Client {
 
         // Submit all transactions.
         let burst = self.rate / PRECISION;
-        let mut payload_commitment = BytesMut::with_capacity(self.size);
-        let mut counter = 0;
-        let mut r = rand::thread_rng().gen();
+        let mut rng = rand::thread_rng();
         let mut transport = Framed::new(stream, LengthDelimitedCodec::new());
         let interval = interval(Duration::from_millis(BURST_DURATION));
         tokio::pin!(interval);
@@ -100,23 +99,27 @@ impl Client {
         // NOTE: This log entry is used to compute performance.
         info!("Start sending payload commitment");
 
+        let mut prev_hash = Digest::default();
+
         'main: loop {
             interval.as_mut().tick().await;
             for _ in 0..burst {
+                let mut random_data = [0u8; 32];
+                rng.fill(&mut random_data[..]);
+                let current_hash = Digest(random_data);
+
+                let payload_commitment = PayloadCommitment::new(prev_hash.clone(), current_hash.clone(), vec![0u8; self.size]);
+
                 // NOTE: This log entry is used to compute performance.
-                info!("Sending payload commitment {}", counter);
+                info!("Sending payload commitment {:?}", current_hash);
 
-                payload_commitment.put_u64(counter); // This counter identifies the payload commitment.
-                payload_commitment.put_u64(r); // Ensures all clients send different payload commitments.
-                r += 1;
-                payload_commitment.resize(self.size, 0u8);
-                let bytes = payload_commitment.split().freeze();
+                let serialized = bincode::serialize(&payload_commitment).context("failed to serialize payload commitment")?;
 
-                if let Err(e) = transport.send(bytes).await {
+                if let Err(e) = transport.send(Bytes::from(serialized)).await {
                     warn!("Failed to send payload commitment: {}", e);
                     break 'main;
                 }
-                counter += 1;
+                prev_hash = current_hash;
             }
         }
         Ok(())

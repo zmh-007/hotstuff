@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::config::{Committee, Stake};
-use crate::processor::SerializedPayloadMessage;
+use crate::processor::PayloadMessage;
 use crypto::PublicKey;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
@@ -19,7 +19,7 @@ const DISSEMINATION_QUEUE_MAX: usize = 10_000;
 #[derive(Debug)]
 pub struct QuorumWaiterMessage {
     /// A serialized `MempoolMessage::Batch` message.
-    pub payload: SerializedPayloadMessage,
+    pub payload: PayloadMessage,
     /// The cancel handlers to receive the acknowledgements of our broadcast.
     pub handlers: Vec<(PublicKey, CancelHandler)>,
 }
@@ -33,7 +33,7 @@ pub struct QuorumWaiter {
     /// Input Channel to receive commands.
     rx_message: Receiver<QuorumWaiterMessage>,
     /// Channel to deliver batches for which we have enough acknowledgements.
-    tx_payload: Sender<SerializedPayloadMessage>,
+    tx_payload: Sender<PayloadMessage>,
 }
 
 impl QuorumWaiter {

@@ -4,15 +4,32 @@ use bytes::Bytes;
 use crypto::PublicKey;
 use network::ReliableSender;
 use std::net::SocketAddr;
-#[cfg(feature = "benchmark")]
 use crypto::Digest;
-#[cfg(feature = "benchmark")]
-use ed25519_dalek::{Digest as _, Sha512};
+use serde::{Serialize, Deserialize};
 #[cfg(feature = "benchmark")]
 use log::info;
-#[cfg(feature = "benchmark")]
-use std::convert::TryInto as _;
 use tokio::sync::mpsc::{Receiver, Sender};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PayloadCommitment {
+    prev_hash: Digest,
+    current_hash: Digest,
+    proof: Vec<u8>,
+}
+
+impl PayloadCommitment {
+    pub fn new(prev_hash: Digest, current_hash: Digest, proof: Vec<u8>) -> Self {
+        Self {
+            prev_hash,
+            current_hash,
+            proof,
+        }
+    }
+
+    pub fn current_hash(&self) -> &Digest {
+        &self.current_hash
+    }
+}
 
 /// broadcast payloads.
 pub struct PayloadBroadcaster {
@@ -67,18 +84,12 @@ impl PayloadBroadcaster {
 
         #[cfg(feature = "benchmark")]
         {
-            // NOTE: This is one extra hash that is only needed to print the following log entries.
-            let digest = Digest(
-                Sha512::digest(&serialized).as_slice()[..32]
-                    .try_into()
-                    .unwrap(),
-            );
-            let id: [u8; 8] = payload[0..8].try_into().unwrap();
+            let payload_commitment: PayloadCommitment = bincode::deserialize(&payload).expect("Payload commitment deserialization failed");
             // NOTE: This log entry is used to compute performance.
             info!(
                 "Hash {:?} contains payload {}",
-                digest,
-                u64::from_be_bytes(id)
+                payload_commitment.current_hash,
+                payload_commitment.current_hash
             );
         }
 
@@ -90,7 +101,7 @@ impl PayloadBroadcaster {
         // Send the payload through the deliver channel for further processing.
         self.tx_message
             .send(QuorumWaiterMessage {
-                payload: serialized,
+                payload,
                 handlers: names.into_iter().zip(handlers.into_iter()).collect(),
             })
             .await

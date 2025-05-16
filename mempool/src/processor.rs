@@ -1,12 +1,9 @@
 use crypto::Digest;
-use ed25519_dalek::Digest as _;
-use ed25519_dalek::Sha512;
-use std::convert::TryInto;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
+use crate::payload_broadcaster::PayloadCommitment;
 
-/// Indicates a serialized `MempoolMessage::Batch` message.
-pub type SerializedPayloadMessage = Vec<u8>;
+pub type PayloadMessage = Vec<u8>;
 
 /// Hashes and stores batches, it then outputs the batch's digest.
 pub struct Processor;
@@ -16,19 +13,20 @@ impl Processor {
         // The persistent storage.
         mut store: Store,
         // Input channel to receive batches.
-        mut rx_payload: Receiver<SerializedPayloadMessage>,
+        mut rx_payload: Receiver<PayloadMessage>,
         // Output channel to send out payload' digests.
-        tx_digest: Sender<Digest>,
+        tx_commitment: Sender<Digest>,
     ) {
         tokio::spawn(async move {
             while let Some(payload) = rx_payload.recv().await {
-                // Hash the payload.
-                let digest = Digest(Sha512::digest(&payload).as_slice()[..32].try_into().unwrap());
+                // deserialize the payload.
+                let payload_commitment: PayloadCommitment = bincode::deserialize(&payload).expect("Payload commitment deserialization failed");
 
                 // Store the payload.
-                store.write(digest.to_vec(), payload).await;
+                let commitment = payload_commitment.current_hash();
+                store.write(commitment.to_vec(), payload).await;
 
-                tx_digest.send(digest).await.expect("Failed to send digest");
+                tx_commitment.send(commitment.clone()).await.expect("Failed to send digest");
             }
         });
     }

@@ -8,3 +8,4 @@ mod synchronizer;
 
 pub use crate::config::{Committee, Parameters};
 pub use crate::mempool::{ConsensusMempoolMessage, Mempool};
+pub use crate::payload_broadcaster::PayloadCommitment;
