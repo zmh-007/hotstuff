@@ -87,7 +87,7 @@ impl PayloadBroadcaster {
             let payload_commitment: PayloadCommitment = bincode::deserialize(&payload).expect("Payload commitment deserialization failed");
             // NOTE: This log entry is used to compute performance.
             info!(
-                "Hash {:?} contains payload {}",
+                "Hash {:?} contains payload {:?}",
                 payload_commitment.current_hash,
                 payload_commitment.current_hash
             );

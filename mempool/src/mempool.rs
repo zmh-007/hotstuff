@@ -175,10 +175,10 @@ impl Mempool {
         );
 
         // This `Processor` hashes and stores the payload we receive from the other mempools. It then forwards the
-        // payload digest to the consensus.
+        // payload commitment to the consensus.
         Processor::spawn(
             self.store.clone(),
-            /* rx_batch */ rx_processor,
+            /* rx_payload */ rx_processor,
             /* tx_commitment */ self.tx_consensus.clone(),
         );
 
@@ -226,12 +226,12 @@ impl MessageHandler for MempoolReceiverHandler {
                 .tx_processor
                 .send(payload)
                 .await
-                .expect("Failed to send batch"),
+                .expect("Failed to send payload"),
             Ok(MempoolMessage::PayloadRequest(missing, requestor)) => self
                 .tx_helper
                 .send((missing, requestor))
                 .await
-                .expect("Failed to send batch request"),
+                .expect("Failed to send payload request"),
             Err(e) => warn!("Serialization error: {}", e),
         }
         Ok(())

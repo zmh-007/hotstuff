@@ -2,7 +2,6 @@ use crypto::Digest;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use crate::payload_broadcaster::PayloadCommitment;
-
 pub type PayloadMessage = Vec<u8>;
 
 /// Hashes and stores batches, it then outputs the batch's digest.
