@@ -48,7 +48,7 @@ impl Consensus {
         parameters: Parameters,
         signature_service: SignatureService,
         store: Store,
-        rx_mempool: Receiver<Digest>,
+        rx_mempool: Receiver<(Digest, Digest)>,
         tx_mempool: Sender<ConsensusMempoolMessage>,
         tx_commit: Sender<Block>,
     ) {
@@ -113,6 +113,7 @@ impl Consensus {
         Proposer::spawn(
             name,
             committee.clone(),
+            store.clone(),
             signature_service,
             rx_mempool,
             /* rx_message */ rx_proposer,

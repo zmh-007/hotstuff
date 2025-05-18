@@ -111,7 +111,7 @@ impl Client {
                 let payload_commitment = PayloadCommitment::new(prev_hash.clone(), current_hash.clone(), vec![0u8; self.size]);
 
                 // NOTE: This log entry is used to compute performance.
-                info!("Sending payload commitment {:?}", current_hash);
+                info!("Sending payload commitment {:?}, prev {:?}", current_hash, prev_hash);
 
                 let serialized = bincode::serialize(&payload_commitment).context("failed to serialize payload commitment")?;
 

@@ -92,6 +92,15 @@ impl Core {
         self.store.write(key, value).await;
     }
 
+    async fn store_last_committed_payload(&mut self, block: &Block) {
+        if block.payload.len() == 0 {
+            return
+        }
+        let key = b"last_committed_payload".to_vec();
+        let value = block.payload[0].to_vec();
+        self.store.write(key, value).await;
+    }
+
     fn increase_last_voted_round(&mut self, target: Round) {
         self.last_voted_round = max(self.last_voted_round, target);
     }
@@ -149,6 +158,7 @@ impl Core {
                 }
             }
             debug!("Committed {:?}", block);
+            self.store_last_committed_payload(&block).await;
             if let Err(e) = self.tx_commit.send(block).await {
                 warn!("Failed to send block through the commit channel: {}", e);
             }
@@ -377,6 +387,8 @@ impl Core {
 
         // Check the block is correctly formed.
         block.verify(&self.committee)?;
+
+        //TODO: check payload
 
         // Process the QC. This may allow us to advance round.
         self.process_qc(&block.qc).await;

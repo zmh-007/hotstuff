@@ -25,9 +25,14 @@ impl PayloadCommitment {
             proof,
         }
     }
-
     pub fn current_hash(&self) -> &Digest {
         &self.current_hash
+    }
+    pub fn prev_hash(&self) -> &Digest {
+        &self.prev_hash
+    }
+    pub fn proof(&self) -> &[u8] {
+        &self.proof
     }
 }
 

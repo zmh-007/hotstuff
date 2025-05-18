@@ -173,6 +173,12 @@ impl QC {
         QC::default()
     }
 
+    pub fn is_genesis(&self) -> bool {
+        self.hash == Digest::default() && 
+        self.round == Round::default() && 
+        self.votes.is_empty()
+    }
+
     pub fn timeout(&self) -> bool {
         self.hash == Digest::default() && self.round != 0
     }

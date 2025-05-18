@@ -14,7 +14,7 @@ impl Processor {
         // Input channel to receive batches.
         mut rx_payload: Receiver<PayloadMessage>,
         // Output channel to send out payload' digests.
-        tx_commitment: Sender<Digest>,
+        tx_commitment: Sender<(Digest, Digest)>,
     ) {
         tokio::spawn(async move {
             while let Some(payload) = rx_payload.recv().await {
@@ -22,10 +22,10 @@ impl Processor {
                 let payload_commitment: PayloadCommitment = bincode::deserialize(&payload).expect("Payload commitment deserialization failed");
 
                 // Store the payload.
-                let commitment = payload_commitment.current_hash();
-                store.write(commitment.to_vec(), payload).await;
+                let digest = payload_commitment.current_hash();
+                store.write(digest.to_vec(), payload).await;
 
-                tx_commitment.send(commitment.clone()).await.expect("Failed to send digest");
+                tx_commitment.send((payload_commitment.prev_hash().clone(), digest.clone())).await.expect("Failed to send digest");
             }
         });
     }
