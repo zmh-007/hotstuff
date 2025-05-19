@@ -57,6 +57,7 @@ impl Consensus {
 
         let (tx_consensus, rx_consensus) = channel(CHANNEL_CAPACITY);
         let (tx_loopback, rx_loopback) = channel(CHANNEL_CAPACITY);
+        let (tx_loopback_propose, rx_loopback_propose) = channel(CHANNEL_CAPACITY);
         let (tx_proposer, rx_proposer) = channel(CHANNEL_CAPACITY);
         let (tx_helper, rx_helper) = channel(CHANNEL_CAPACITY);
 
@@ -92,6 +93,13 @@ impl Consensus {
             tx_loopback.clone(),
             parameters.sync_retry_delay,
         );
+        let synchronizer_propose = Synchronizer::new(
+            name,
+            committee.clone(),
+            store.clone(),
+            tx_loopback_propose,
+            parameters.sync_retry_delay,
+        );
 
         // Spawn the consensus core.
         Core::spawn(
@@ -115,9 +123,11 @@ impl Consensus {
             committee.clone(),
             store.clone(),
             signature_service,
+            synchronizer_propose,
             rx_mempool,
             /* rx_message */ rx_proposer,
             tx_loopback,
+            rx_loopback_propose,
         );
 
         // Spawn the helper module.

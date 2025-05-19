@@ -1,6 +1,7 @@
 use crate::config::{Committee, Stake};
 use crate::consensus::{ConsensusMessage, Round};
 use crate::messages::{Block, QC, TC};
+use crate::synchronizer::Synchronizer;
 use bytes::Bytes;
 use crypto::{Digest, PublicKey, SignatureService};
 use futures::stream::futures_unordered::FuturesUnordered;
@@ -24,9 +25,11 @@ pub struct Proposer {
     committee: Committee,
     store: Store,
     signature_service: SignatureService,
+    synchronizer: Synchronizer,
     rx_mempool: Receiver<(Digest, Digest)>,
     rx_message: Receiver<ProposerMessage>,
     tx_loopback: Sender<Block>,
+    rx_loopback_propose: Receiver<Block>,
     buffer: HashMap<Digest, HashSet<Digest>>,
     network: ReliableSender,
 }
@@ -37,9 +40,11 @@ impl Proposer {
         committee: Committee,
         store: Store,
         signature_service: SignatureService,
+        synchronizer: Synchronizer,
         rx_mempool: Receiver<(Digest, Digest)>,
         rx_message: Receiver<ProposerMessage>,
         tx_loopback: Sender<Block>,
+        rx_loopback_propose: Receiver<Block>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -47,9 +52,11 @@ impl Proposer {
                 committee,
                 store,
                 signature_service,
+                synchronizer,
                 rx_mempool,
                 rx_message,
                 tx_loopback,
+                rx_loopback_propose,
                 buffer: HashMap::new(),
                 network: ReliableSender::new(),
             }
@@ -64,18 +71,6 @@ impl Proposer {
         deliver
     }
 
-    pub async fn get_block(&mut self, key: Vec<u8>) -> Option<Vec<u8>> {
-        match self.store.read(key).await {
-            Ok(Some(data)) => Some(data),
-            Ok(None) => {
-                None
-            },
-            Err(e) => {
-               panic!("get store failed: {:?}", e);
-            }
-        }
-    }
-
     pub async fn get_last_committed_payload(&mut self) -> Vec<u8> {
         self.store.read(b"last_committed_payload".to_vec())
             .await
@@ -83,45 +78,39 @@ impl Proposer {
             .unwrap_or_else(|| Digest::default().to_vec())
     }
 
-    pub async fn find_prev_payload(&mut self, block_hash: Vec<u8>) -> Digest {
-        // find this block
-        if let Some(serialized) = self.get_block(block_hash).await {
-            let block: Block = bincode::deserialize(&serialized).expect("Failed to deserialize block");
-            if !block.payload.is_empty() {
-                return block.payload[0].clone();
-            }
-
-            // find prev block
-            if let Some(prev_serialized) = self.get_block(block.qc.hash.to_vec()).await {
-                let prev_block: Block = bincode::deserialize(&prev_serialized)
-                    .expect("Failed to deserialize previous block");
-                if !prev_block.payload.is_empty() {
-                    return prev_block.payload[0].clone();
-                }
-            }
-            //TODO: process None, wait for sync?
-        }
-        //TODO: process None, wait for sync?
-
-        // use last committed payload
-        let last_committed_payload = self.get_last_committed_payload().await;
-        Digest::try_from(last_committed_payload.as_slice()).expect("Failed to convert to stored payload to Digest")
-    }
-
-    async fn make_block(&mut self, round: Round, qc: QC, tc: Option<TC>) {
+    async fn make_block(&mut self, b: Block) {
         // TODO: empty the buffer
-        let prev_payload = self.find_prev_payload(qc.hash.to_vec()).await;
-        let payload = if let Some(digests) = self.buffer.get_mut(&prev_payload) {
+        let (b0, b1) = match self.synchronizer.get_ancestors(&b).await {
+            Ok(Some(ancestors)) => ancestors,
+            Ok(None) => {
+                info!("Propose suspended: missing parent");
+                return;
+            }
+            Err(e) => {
+                panic!("Failed to get ancestors when propose block: {}", e);
+            }
+        };
+        
+        let prev_payload = if !b1.payload.is_empty() {
+            &b1.payload[0]
+        } else if !b0.payload.is_empty() {
+            &b0.payload[0]
+        } else {
+            let last_committed_payload = self.get_last_committed_payload().await;
+            &Digest::try_from(last_committed_payload.as_slice()).expect("Failed to convert to stored payload to Digest")
+        };  
+        let payload = if let Some(digests) = self.buffer.get_mut(prev_payload) {
             digests.iter().choose(&mut rand::thread_rng()).cloned()
         } else {
             None
         };
+
         // Generate a new block.
         let block = Block::new(
-            qc,
-            tc,
-            self.name,
-            round,
+            b.qc,
+            b.tc,
+            b.author,
+            b.round,
             /* payload */ payload.into_iter().collect(),
             self.signature_service.clone(),
         )
@@ -184,8 +173,11 @@ impl Proposer {
                 Some((prev_digest, digest)) = self.rx_mempool.recv() => {
                     self.buffer.entry(prev_digest).or_default().insert(digest);
                 },
+                Some(block) = self.rx_loopback_propose.recv() => {
+                    self.make_block(block).await;
+                },
                 Some(message) = self.rx_message.recv() => match message {
-                    ProposerMessage::Make(round, qc, tc) => self.make_block(round, qc, tc).await,
+                    ProposerMessage::Make(round, qc, tc) => self.make_block(Block{round, qc, tc, author: self.name, ..Default::default()}).await,
                     ProposerMessage::Cleanup(digests) => {
                         for x in &digests {
                             self.buffer.remove(x);
