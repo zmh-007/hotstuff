@@ -98,7 +98,7 @@ impl Proposer {
         } else {
             let last_committed_payload = self.get_last_committed_payload().await;
             &Digest::try_from(last_committed_payload.as_slice()).expect("Failed to convert to stored payload to Digest")
-        };  
+        };
         let payload = if let Some(digests) = self.buffer.get_mut(prev_payload) {
             digests.iter().choose(&mut rand::thread_rng()).cloned()
         } else {
@@ -179,8 +179,9 @@ impl Proposer {
                 Some(message) = self.rx_message.recv() => match message {
                     ProposerMessage::Make(round, qc, tc) => self.make_block(Block{round, qc, tc, author: self.name, ..Default::default()}).await,
                     ProposerMessage::Cleanup(digests) => {
-                        for x in &digests {
-                            self.buffer.remove(x);
+                        //TODO
+                        for _ in &digests {
+                            //self.buffer.remove(x);
                         }
                     }
                 }
