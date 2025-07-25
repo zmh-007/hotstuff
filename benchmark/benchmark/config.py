@@ -6,9 +6,8 @@ class ConfigError(Exception):
 
 
 class Key:
-    def __init__(self, name, vk, secret):
+    def __init__(self, name, secret):
         self.name = name
-        self.vk = vk
         self.secret = secret
 
     @classmethod
@@ -16,18 +15,17 @@ class Key:
         assert isinstance(filename, str)
         with open(filename, 'r') as f:
             data = load(f)
-        return cls(data['name'], data['vd'], data['secret'])
+        return cls(data['name'], data['secret'])
 
 
 class Committee:
-    def __init__(self, names, vds, consensus_addr, transactions_addr, mempool_addr):
-        inputs = [names, vds, consensus_addr, transactions_addr, mempool_addr]
+    def __init__(self, names, consensus_addr, transactions_addr, mempool_addr):
+        inputs = [names, consensus_addr, transactions_addr, mempool_addr]
         assert all(isinstance(x, list) for x in inputs)
         assert all(isinstance(x, str) for y in inputs for x in y)
         assert len({len(x) for x in inputs}) == 1
 
         self.names = names
-        self.vds = vds
         self.consensus = consensus_addr
         self.front = transactions_addr
         self.mempool = mempool_addr
@@ -39,16 +37,15 @@ class Committee:
 
     def _build_consensus(self):
         node = {}
-        for a, n, v in zip(self.consensus, self.names, self.vds):
-            node[n] = {'name': n, 'vd': v, 'stake': 1, 'address': a}
+        for a, n in zip(self.consensus, self.names):
+            node[n] = {'name': n, 'stake': 1, 'address': a}
         return {'authorities': node, 'epoch': 1}
 
     def _build_mempool(self):
         node = {}
-        for n, v, f, m in zip(self.names, self.vds, self.front, self.mempool):
+        for n, f, m in zip(self.names, self.front, self.mempool):
             node[n] = {
                 'name': n,
-                'vd': v,
                 'stake': 1,
                 'transactions_address': f,
                 'mempool_address': m
@@ -82,17 +79,15 @@ class Committee:
 
 
 class LocalCommittee(Committee):
-    def __init__(self, names, vks, port):
+    def __init__(self, names, port):
         assert isinstance(names, list) and all(
-            isinstance(x, str) for x in names)
-        assert isinstance(vks, list) and all(
             isinstance(x, str) for x in names)
         assert isinstance(port, int)
         size = len(names)
         consensus = [f'127.0.0.1:{port + i}' for i in range(size)]
         front = [f'127.0.0.1:{port + i + size}' for i in range(size)]
         mempool = [f'127.0.0.1:{port + i + 2*size}' for i in range(size)]
-        super().__init__(names, vks, consensus, front, mempool)
+        super().__init__(names, consensus, front, mempool)
 
 
 class NodeParameters:

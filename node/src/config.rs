@@ -1,5 +1,5 @@
 use consensus::{Committee as ConsensusCommittee, Parameters as ConsensusParameters};
-use crypto::{generate_production_keypair, PublicKey};
+use crypto::{generate_production_keypair, PublicKey, SecretKey};
 use mempool::{Committee as MempoolCommittee, Parameters as MempoolParameters};
 use placeholder_project_name_placeholder_zk::hash::hash_types::HashOut;
 use placeholder_project_name_placeholder_zk::field::goldilocks_field::GoldilocksField;
@@ -15,7 +15,6 @@ use thiserror::Error;
 use std::convert::TryInto;
 use base64::{Engine as _, engine::general_purpose};
 use circuit::{Digest, SecretCircuit};
-use blst::min_pk::SecretKey;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {

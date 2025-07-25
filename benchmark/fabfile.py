@@ -14,13 +14,13 @@ def local(ctx):
     bench_params = {
         "faults": 0,
         "nodes": 4,
-        "rate": 4,
+        "rate": 40,
         "tx_size": 512,
-        "duration": 300,
+        "duration": 20,
     }
     node_params = {
         "consensus": {
-            "timeout_delay": 60_000,
+            "timeout_delay": 1_000,
             "sync_retry_delay": 10_000,
         },
         "mempool": {

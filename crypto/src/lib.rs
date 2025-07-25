@@ -12,7 +12,6 @@ use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::oneshot;
 use std::cmp::Ordering;
 use serde::{ser, de, Serialize, Serializer, Deserialize, Deserializer};
-use blst::min_pk::{SecretKey};
 
 #[cfg(test)]
 #[path = "tests/crypto_tests.rs"]
@@ -92,11 +91,11 @@ pub struct PublicKey(pub [u8; 48]);
 
 impl PublicKey {
     pub fn encode_base64(&self) -> String {
-        base64::encode(&self.0[..])
+        general_purpose::STANDARD.encode(&self.0)
     }
 
     pub fn decode_base64(s: &str) -> Result<Self, base64::DecodeError> {
-        let bytes = base64::decode(s)?;
+        let bytes = general_purpose::STANDARD.decode(s)?;
         let array = bytes[..48]
             .try_into()
             .map_err(|_| base64::DecodeError::InvalidLength)?;
@@ -157,16 +156,53 @@ impl AsRef<[u8]> for PublicKey {
     }
 }
 
+/// Represents a secret key (in bytes).
+pub struct SecretKey([u8; 32]);
+
+impl SecretKey {
+    pub fn encode_base64(&self) -> String {
+        general_purpose::STANDARD.encode(&self.0)
+    }
+
+    pub fn decode_base64(s: &str) -> Result<Self, base64::DecodeError> {
+        let bytes = general_purpose::STANDARD.decode(s)?;
+        let array = bytes[..32]
+            .try_into()
+            .map_err(|_| base64::DecodeError::InvalidLength)?;
+        Ok(Self(array))
+    }
+}
+
+impl Serialize for SecretKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        serializer.serialize_str(&self.encode_base64())
+    }
+}
+
+impl<'de> Deserialize<'de> for SecretKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let value = Self::decode_base64(&s).map_err(|e| de::Error::custom(e.to_string()))?;
+        Ok(value)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Signature(pub [u8; 96]);
 
 impl Signature {
     pub fn encode_base64(&self) -> String {
-        base64::encode(&self.0[..])
+        general_purpose::STANDARD.encode(&self.0[..])
     }
 
     pub fn decode_base64(s: &str) -> Result<Self, base64::DecodeError> {
-        let bytes = base64::decode(s)?;
+        let bytes = general_purpose::STANDARD.decode(s)?;
         let array = bytes[..96]
             .try_into()
             .map_err(|_| base64::DecodeError::InvalidLength)?;
@@ -205,11 +241,11 @@ pub fn generate_production_keypair() -> (PublicKey, SecretKey) {
     let mut rng = rand::thread_rng();
     let mut ikm = [0u8; 32];
     rng.fill_bytes(&mut ikm);
-    let sk = SecretKey::key_gen(&ikm, &[]).unwrap();
+    let sk = blst::min_pk::SecretKey::key_gen(&ikm, &[]).unwrap();
 
     // calculate pk
     let pk = sk.sk_to_pk();
-    (PublicKey(pk.to_bytes()), sk)
+    (PublicKey(pk.to_bytes()), SecretKey(sk.to_bytes()))
 }
 
 /// This service holds the node's private key. It takes digests as input and returns a signature
@@ -225,7 +261,8 @@ impl SignatureService {
         tokio::spawn(async move {
             while let Some((digest, sender)) = rx.recv().await {
                 let dst = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
-                let signature = secret.sign(&digest.to_vec(), dst, &[]);
+                let sk = blst::min_pk::SecretKey::from_bytes(&secret.0).unwrap();
+                let signature = sk.sign(&digest.to_vec(), dst, &[]);
                 let _ = sender.send(Signature(signature.to_bytes()));
             }
         });

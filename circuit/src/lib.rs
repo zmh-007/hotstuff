@@ -17,7 +17,6 @@ use base64::{Engine as _, engine::general_purpose};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::oneshot;
 use std::fmt;
-use std::thread::Builder;
 use log::info;
 use std::time::Instant;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};

@@ -1,4 +1,4 @@
-use crypto::{Digest, PublicKey};
+use crypto::PublicKey;
 
 use crate::config::Committee;
 use crate::consensus::Round;

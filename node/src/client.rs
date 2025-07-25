@@ -5,13 +5,11 @@ use env_logger::Env;
 use futures::future::join_all;
 use futures::sink::SinkExt as _;
 use log::{info, warn};
-use mempool::{SerializedTransaction, TransactionFields};
+use mempool::TransactionFields;
 use placeholder_project_name_placeholder_zk::field::goldilocks_field::GoldilocksField;
 use placeholder_project_name_placeholder_zk::field::types::Field;
-use placeholder_project_name_placeholder_zk::hash::hash_types::HashOut;
 use placeholder_project_name_placeholder_zk::placeholder_project_name_placeholder_patch::{PlaceholderProjectNamePlaceholderField, PlaceholderProjectNamePlaceholderHash, PlaceholderProjectNamePlaceholderProof, PlaceholderProjectNamePlaceholderVerifierOnlyCircuitData};
 use rand::Rng;
-use serde::Serialize;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::time::{interval, sleep, Duration, Instant};
@@ -80,7 +78,7 @@ struct Client {
 impl Client {
     pub async fn send(&self) -> Result<()> {
         const PRECISION: u64 = 1; // Sample precision.
-        const BURST_DURATION: u64 = 10000 / PRECISION; //10s
+        const BURST_DURATION: u64 = 1000 / PRECISION; //1s
 
         // The transaction size must be at least 16 bytes to ensure all txs are different.
         if self.size < 16 {

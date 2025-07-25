@@ -1,5 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use super::*;
+use blst::min_pk::{SecretKey};
 
 #[test]
 fn verify_valid_signature() {
