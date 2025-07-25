@@ -1,7 +1,7 @@
 use crate::mempool::{MempoolMessage, SerializedTransaction};
 use crate::quorum_waiter::QuorumWaiterMessage;
 use bytes::Bytes;
-use circuit::Digest;
+use crypto::PublicKey;
 use network::ReliableSender;
 use std::net::SocketAddr;
 #[cfg(feature = "benchmark")]
@@ -15,7 +15,7 @@ pub struct PayloadBroadcaster {
     /// Output channel to deliver payload to the `QuorumWaiter`.
     tx_message: Sender<QuorumWaiterMessage>,
     /// The network addresses of the other mempools.
-    mempool_addresses: Vec<(Digest, SocketAddr)>,
+    mempool_addresses: Vec<(PublicKey, SocketAddr)>,
     /// A network sender to broadcast the batches to the other mempools.
     network: ReliableSender,
 }
@@ -24,7 +24,7 @@ impl PayloadBroadcaster {
     pub fn spawn(
         rx_transaction: Receiver<SerializedTransaction>,
         tx_message: Sender<QuorumWaiterMessage>,
-        mempool_addresses: Vec<(Digest, SocketAddr)>,
+        mempool_addresses: Vec<(PublicKey, SocketAddr)>,
     ) {
         tokio::spawn(async move {
             Self {

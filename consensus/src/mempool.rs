@@ -1,7 +1,7 @@
 use crate::consensus::{Round, CHANNEL_CAPACITY};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::Block;
-use circuit::{Hash, Digest};
+use crypto::{Hash, Digest};
 use futures::future::try_join_all;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;

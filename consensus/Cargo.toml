@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 placeholder_project_name_placeholder_zk = { path = "../../monorepo/zk/plonky2" }
 l0 = { path = "../../monorepo/l0" }
+blst = { git = "https://github.com/supranational/blst", branch = "master", features = ["serde", "serde-secret"] }
 thiserror = "1.0.21"
 tokio = { version = "1.3.0", features = ["rt", "time", "macros", "sync"] }
 ed25519-dalek = "1.0.1"
@@ -21,7 +22,7 @@ base64 = "0.21"
 async-trait = "0.1.50"
 
 store = { path = "../store" }
-circuit = { path = "../circuit" }
+crypto = { path = "../crypto" }
 network = { path = "../network" }
 mempool = { path = "../mempool" }
 

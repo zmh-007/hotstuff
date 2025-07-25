@@ -1,5 +1,5 @@
 use crate::consensus::Round;
-use circuit::Digest;
+use crypto::{Digest, PublicKey};
 use store::StoreError;
 use thiserror::Error;
 
@@ -39,10 +39,10 @@ pub enum ConsensusError {
     InvalidProof(String),
 
     #[error("Received more than one vote from {0}")]
-    AuthorityReuse(Digest),
+    AuthorityReuse(PublicKey),
 
     #[error("Received vote from unknown authority {0}")]
-    UnknownAuthority(Digest),
+    UnknownAuthority(PublicKey),
 
     #[error("Received QC without a quorum")]
     QCRequiresQuorum,
@@ -56,7 +56,7 @@ pub enum ConsensusError {
     #[error("Received block {digest} from leader {leader} at round {round}")]
     WrongLeader {
         digest: Digest,
-        leader: Digest,
+        leader: PublicKey,
         round: Round,
     },
 

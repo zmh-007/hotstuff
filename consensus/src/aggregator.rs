@@ -3,10 +3,7 @@ use crate::consensus::Round;
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::{Timeout, Vote, QC, TC};
 use std::collections::{HashMap, HashSet};
-use placeholder_project_name_placeholder_zk::field::goldilocks_field::GoldilocksField;
-use placeholder_project_name_placeholder_zk::plonk::config::PoseidonGoldilocksConfig;
-use placeholder_project_name_placeholder_zk::plonk::proof::Proof;
-use circuit::{Hash, Digest};
+use crypto::{Digest, Hash, PublicKey, Signature};
 
 pub struct Aggregator {
     committee: Committee,
@@ -55,8 +52,8 @@ impl Aggregator {
 
 struct QCMaker {
     weight: Stake,
-    votes: Vec<(Digest, Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>)>,
-    used: HashSet<Digest>,
+    votes: Vec<(PublicKey, Signature)>,
+    used: HashSet<PublicKey>,
 }
 
 impl QCMaker {
@@ -78,7 +75,7 @@ impl QCMaker {
             ConsensusError::AuthorityReuse(author)
         );
 
-        self.votes.push((author.clone(), vote.proof.unwrap()));
+        self.votes.push((author.clone(), vote.signature));
         self.weight += committee.stake(&author);
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures QC is only made once.
@@ -95,8 +92,8 @@ impl QCMaker {
 
 struct TCMaker {
     weight: Stake,
-    votes: Vec<(Digest, Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>, Round)>,
-    used: HashSet<Digest>,
+    votes: Vec<(PublicKey, Signature, Round)>,
+    used: HashSet<PublicKey>,
 }
 
 impl TCMaker {
@@ -124,7 +121,7 @@ impl TCMaker {
 
         // Add the timeout to the accumulator.
         self.votes
-            .push((author.clone(), timeout.proof.unwrap(), timeout.high_qc.round));
+            .push((author.clone(), timeout.signature, timeout.high_qc.round));
         self.weight += committee.stake(&author);
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures TC is only created once.

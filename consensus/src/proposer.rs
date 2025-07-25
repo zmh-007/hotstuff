@@ -7,7 +7,7 @@ use futures::stream::StreamExt as _;
 use log::{debug, info};
 use network::{CancelHandler, ReliableSender};
 use std::collections::HashSet;
-use circuit::{Digest, ProofService};
+use crypto::{Digest, PublicKey, SignatureService};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug)]
@@ -17,9 +17,9 @@ pub enum ProposerMessage {
 }
 
 pub struct Proposer {
-    name: Digest,
+    name: PublicKey,
     committee: Committee,
-    signature_service: ProofService,
+    signature_service: SignatureService,
     rx_mempool: Receiver<Digest>,
     rx_message: Receiver<ProposerMessage>,
     tx_loopback: Sender<Block>,
@@ -29,9 +29,9 @@ pub struct Proposer {
 
 impl Proposer {
     pub fn spawn(
-        name: Digest,
+        name: PublicKey,
         committee: Committee,
-        signature_service: ProofService,
+        signature_service: SignatureService,
         rx_mempool: Receiver<Digest>,
         rx_message: Receiver<ProposerMessage>,
         tx_loopback: Sender<Block>,

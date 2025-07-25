@@ -1,6 +1,5 @@
 use std::convert::TryFrom;
-
-use circuit::Digest;
+use crypto::Digest;
 use store::Store;
 use bincode::deserialize;
 use tokio::sync::mpsc::{Receiver, Sender};

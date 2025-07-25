@@ -9,7 +9,7 @@ use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
 use async_trait::async_trait;
 use bytes::Bytes;
-use circuit::{Digest, ProofService};
+use crypto::{Digest, PublicKey, SignatureService};
 use futures::SinkExt as _;
 use log::info;
 use mempool::ConsensusMempoolMessage;
@@ -55,7 +55,7 @@ pub enum ConsensusMessage {
     Vote(Vote),
     Timeout(Timeout),
     TC(TC),
-    SyncRequest(Digest, Digest),
+    SyncRequest(Digest, PublicKey),
 }
 
 pub struct Consensus;
@@ -63,10 +63,10 @@ pub struct Consensus;
 impl Consensus {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
-        name: Digest,
+        name: PublicKey,
         committee: Committee,
         parameters: Parameters,
-        proof_service: ProofService,
+        sugnature_service: SignatureService,
         store: Store,
         rx_mempool: Receiver<Digest>,
         tx_mempool: Sender<ConsensusMempoolMessage>,
@@ -117,7 +117,7 @@ impl Consensus {
         Core::spawn(
             name,
             committee.clone(),
-            proof_service.clone(),
+            sugnature_service.clone(),
             store.clone(),
             leader_elector,
             mempool_driver,
@@ -133,7 +133,7 @@ impl Consensus {
         Proposer::spawn(
             name,
             committee.clone(),
-            proof_service,
+            sugnature_service,
             rx_mempool,
             /* rx_message */ rx_proposer,
             tx_loopback,
@@ -148,7 +148,7 @@ impl Consensus {
 #[derive(Clone)]
 struct ConsensusReceiverHandler {
     tx_consensus: Sender<ConsensusMessage>,
-    tx_helper: Sender<(Digest, Digest)>,
+    tx_helper: Sender<(Digest, PublicKey)>,
 }
 
 #[async_trait]

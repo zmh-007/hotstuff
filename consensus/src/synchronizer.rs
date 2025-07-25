@@ -3,7 +3,7 @@ use crate::consensus::{ConsensusMessage, CHANNEL_CAPACITY};
 use crate::error::ConsensusResult;
 use crate::messages::{Block, QC};
 use bytes::Bytes;
-use circuit::{Hash, Digest};
+use crypto::{Digest, Hash, PublicKey};
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use log::{debug, error};
@@ -23,7 +23,7 @@ pub struct Synchronizer {
 
 impl Synchronizer {
     pub fn new(
-        name: Digest,
+        name: PublicKey,
         committee: Committee,
         store: Store,
         tx_loopback: Sender<Block>,

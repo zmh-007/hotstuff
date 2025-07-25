@@ -1,4 +1,4 @@
-use circuit::Digest;
+use crypto::PublicKey;
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -39,12 +39,12 @@ pub struct Authority {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Committee {
-    pub authorities: HashMap<Digest, Authority>,
+    pub authorities: HashMap<PublicKey, Authority>,
     pub epoch: EpochNumber,
 }
 
 impl Committee {
-    pub fn new(info: Vec<(Digest, String, Stake, SocketAddr)>, epoch: EpochNumber) -> Self {
+    pub fn new(info: Vec<(PublicKey, String, Stake, SocketAddr)>, epoch: EpochNumber) -> Self {
         Self {
             authorities: info
                 .into_iter()
@@ -61,7 +61,7 @@ impl Committee {
         self.authorities.len()
     }
 
-    pub fn stake(&self, name: &Digest) -> Stake {
+    pub fn stake(&self, name: &PublicKey) -> Stake {
         self.authorities.get(name).map_or_else(|| 0, |x| x.stake)
     }
 
@@ -72,11 +72,11 @@ impl Committee {
         2 * total_votes / 3 + 1
     }
 
-    pub fn address(&self, name: &Digest) -> Option<SocketAddr> {
+    pub fn address(&self, name: &PublicKey) -> Option<SocketAddr> {
         self.authorities.get(name).map(|x| x.address)
     }
 
-    pub fn broadcast_addresses(&self, myself: &Digest) -> Vec<(Digest, SocketAddr)> {
+    pub fn broadcast_addresses(&self, myself: &PublicKey) -> Vec<(PublicKey, SocketAddr)> {
         self.authorities
             .iter()
             .filter(|(name, _)| name != &myself)

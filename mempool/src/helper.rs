@@ -1,6 +1,6 @@
 use crate::{config::Committee, mempool::MempoolMessage};
 use bytes::Bytes;
-use circuit::Digest;
+use crypto::{Digest, PublicKey};
 use log::{error, warn};
 use network::SimpleSender;
 use store::Store;
@@ -13,7 +13,7 @@ pub struct Helper {
     /// The persistent storage.
     store: Store,
     /// Input channel to receive batch requests.
-    rx_request: Receiver<(Vec<Digest>, Digest)>,
+    rx_request: Receiver<(Vec<Digest>, PublicKey)>,
     /// A network sender to send the batches to the other mempools.
     network: SimpleSender,
 }
@@ -22,7 +22,7 @@ impl Helper {
     pub fn spawn(
         committee: Committee,
         store: Store,
-        rx_request: Receiver<(Vec<Digest>, Digest)>,
+        rx_request: Receiver<(Vec<Digest>, PublicKey)>,
     ) {
         tokio::spawn(async move {
             Self {

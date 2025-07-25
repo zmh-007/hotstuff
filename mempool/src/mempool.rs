@@ -6,7 +6,7 @@ use crate::synchronizer::Synchronizer;
 use crate::tx_broadcaster::PayloadBroadcaster;
 use async_trait::async_trait;
 use bytes::Bytes;
-use circuit::Digest;
+use crypto::{Digest, PublicKey};
 use futures::sink::SinkExt as _;
 use log::{info, warn};
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
@@ -51,21 +51,21 @@ impl<'de> Deserialize<'de> for TransactionFields {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum MempoolMessage {
     Transaction(SerializedTransaction),
-    TransactionRequest(Vec<Digest>, /* origin */ Digest),
+    TransactionRequest(Vec<Digest>, /* origin */ PublicKey),
 }
 
 /// The messages sent by the consensus and the mempool.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ConsensusMempoolMessage {
     /// The consensus notifies the mempool that it need to sync the target missing tx.
-    Synchronize(Vec<Digest>, /* target */ Digest),
+    Synchronize(Vec<Digest>, /* target */ PublicKey),
     /// The consensus notifies the mempool of a round update.
     Cleanup(Round),
 }
 
 pub struct Mempool {
     /// The public key of this authority.
-    name: Digest,
+    name: PublicKey,
     /// The committee information.
     committee: Committee,
     /// The configuration parameters.
@@ -78,7 +78,7 @@ pub struct Mempool {
 
 impl Mempool {
     pub fn spawn(
-        name: Digest,
+        name: PublicKey,
         committee: Committee,
         parameters: Parameters,
         store: Store,
@@ -236,7 +236,7 @@ impl MessageHandler for TxReceiverHandler {
 /// Defines how the network receiver handles incoming mempool messages.
 #[derive(Clone)]
 struct MempoolReceiverHandler {
-    tx_helper: Sender<(Vec<Digest>, Digest)>,
+    tx_helper: Sender<(Vec<Digest>, PublicKey)>,
     tx_processor: Sender<SerializedTransaction>,
 }
 

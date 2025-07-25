@@ -1,13 +1,11 @@
 use consensus::{Committee as ConsensusCommittee, Parameters as ConsensusParameters};
-use crypto::{generate_keypair, generate_production_keypair, PublicKey, SecretKey};
+use crypto::{generate_production_keypair, PublicKey};
 use mempool::{Committee as MempoolCommittee, Parameters as MempoolParameters};
 use placeholder_project_name_placeholder_zk::hash::hash_types::HashOut;
 use placeholder_project_name_placeholder_zk::field::goldilocks_field::GoldilocksField;
 use placeholder_project_name_placeholder_zk::field::types::Sample;
 use placeholder_project_name_placeholder_zk::placeholder_project_name_placeholder_patch::PlaceholderProjectNamePlaceholderVerifierOnlyCircuitData;
 use placeholder_project_name_placeholder_zk::util::serialization::DefaultGateSerializer;
-use rand::rngs::StdRng;
-use rand::SeedableRng as _;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -17,6 +15,7 @@ use thiserror::Error;
 use std::convert::TryInto;
 use base64::{Engine as _, engine::general_purpose};
 use circuit::{Digest, SecretCircuit};
+use blst::min_pk::SecretKey;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -80,8 +79,7 @@ impl Export for Secret {}
 
 impl Default for Secret {
     fn default() -> Self {
-        let mut rng = StdRng::from_seed([0; 32]);
-        let (name, secret) = generate_keypair(&mut rng);
+        let (name, secret) = generate_production_keypair();
         Self { name, secret }
     }
 }

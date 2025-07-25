@@ -1,58 +1,83 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use ed25519_dalek as dalek;
-use ed25519_dalek::ed25519;
-use ed25519_dalek::Signer as _;
-use rand::rngs::OsRng;
-use rand::{CryptoRng, RngCore};
-use serde::{de, ser, Deserialize, Serialize};
-use std::array::TryFromSliceError;
-use std::convert::{TryFrom, TryInto};
+use placeholder_project_name_placeholder_zk::field::goldilocks_field::GoldilocksField;
+use placeholder_project_name_placeholder_zk::field::types::Field;
+use placeholder_project_name_placeholder_zk::hash::poseidon::PoseidonHash;
+use placeholder_project_name_placeholder_zk::plonk::config::{GenericHashOut, Hasher};
+use placeholder_project_name_placeholder_zk::hash::hash_types::HashOut;
+use rand::{RngCore};
 use std::fmt;
+use std::convert::TryInto;
+use base64::{Engine as _, engine::general_purpose};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::oneshot;
+use std::cmp::Ordering;
+use serde::{ser, de, Serialize, Serializer, Deserialize, Deserializer};
+use blst::min_pk::{SecretKey};
 
 #[cfg(test)]
 #[path = "tests/crypto_tests.rs"]
 pub mod crypto_tests;
 
-pub type CryptoError = ed25519::Error;
-
 /// Represents a hash digest (32 bytes).
-#[derive(Hash, PartialEq, Default, Eq, Clone, Deserialize, Serialize, Ord, PartialOrd)]
-pub struct Digest(pub [u8; 32]);
+#[derive(Copy, Hash, PartialEq, Default, Eq, Clone)]
+pub struct Digest(pub HashOut<GoldilocksField>);
 
 impl Digest {
     pub fn to_vec(&self) -> Vec<u8> {
-        self.0.to_vec()
+        self.0.to_bytes()
+    }
+
+    pub fn to_vec_field(&self) -> Vec<GoldilocksField> {
+        self.0.elements.to_vec()
     }
 
     pub fn size(&self) -> usize {
-        self.0.len()
+        self.0.elements.len()
     }
 }
 
 impl fmt::Debug for Digest {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", base64::encode(&self.0))
+        write!(f, "{}", general_purpose::STANDARD.encode(&self.0.to_bytes()))
     }
 }
 
 impl fmt::Display for Digest {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", base64::encode(&self.0).get(0..16).unwrap())
+        write!(f, "{}", general_purpose::STANDARD.encode(&self.0.to_bytes()))
     }
 }
 
-impl AsRef<[u8]> for Digest {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
+impl PartialOrd for Digest {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
-impl TryFrom<&[u8]> for Digest {
-    type Error = TryFromSliceError;
-    fn try_from(item: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Digest(item.try_into()?))
+impl Ord for Digest {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.to_bytes().cmp(&other.0.to_bytes())
+    }
+}
+
+impl Serialize for Digest {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let base64_str = general_purpose::STANDARD.encode(&self.0.to_bytes());
+        serializer.serialize_str(&base64_str)
+    }
+}
+
+impl<'de> Deserialize<'de> for Digest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let base64_str = String::deserialize(deserializer)?;
+        let bytes = general_purpose::STANDARD.decode(&base64_str).unwrap();
+        Ok(Digest(HashOut::from_bytes(&bytes)))
     }
 }
 
@@ -62,8 +87,8 @@ pub trait Hash {
 }
 
 /// Represents a public key (in bytes).
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
-pub struct PublicKey(pub [u8; 32]);
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct PublicKey(pub [u8; 48]);
 
 impl PublicKey {
     pub fn encode_base64(&self) -> String {
@@ -72,10 +97,25 @@ impl PublicKey {
 
     pub fn decode_base64(s: &str) -> Result<Self, base64::DecodeError> {
         let bytes = base64::decode(s)?;
-        let array = bytes[..32]
+        let array = bytes[..48]
             .try_into()
             .map_err(|_| base64::DecodeError::InvalidLength)?;
         Ok(Self(array))
+    }
+
+    pub fn to_hash(&self) -> HashOut<GoldilocksField> {
+        let mut fields = [GoldilocksField::ZERO; 6];
+        for (i, chunk) in self.0.chunks_exact(8).enumerate() {
+            let bytes: [u8; 8] = chunk.try_into().unwrap();
+            fields[i] = GoldilocksField::from_canonical_u64(u64::from_le_bytes(bytes));
+        }
+        PoseidonHash::hash_no_pad(&fields)
+    }
+}
+
+impl Default for PublicKey {
+    fn default() -> Self {
+        PublicKey([0u8; 48])
     }
 }
 
@@ -117,24 +157,24 @@ impl AsRef<[u8]> for PublicKey {
     }
 }
 
-/// Represents a secret key (in bytes).
-pub struct SecretKey([u8; 64]);
+#[derive(Clone, Debug)]
+pub struct Signature(pub [u8; 96]);
 
-impl SecretKey {
+impl Signature {
     pub fn encode_base64(&self) -> String {
         base64::encode(&self.0[..])
     }
 
     pub fn decode_base64(s: &str) -> Result<Self, base64::DecodeError> {
         let bytes = base64::decode(s)?;
-        let array = bytes[..64]
+        let array = bytes[..96]
             .try_into()
             .map_err(|_| base64::DecodeError::InvalidLength)?;
         Ok(Self(array))
     }
 }
 
-impl Serialize for SecretKey {
+impl Serialize for Signature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ser::Serializer,
@@ -143,7 +183,7 @@ impl Serialize for SecretKey {
     }
 }
 
-impl<'de> Deserialize<'de> for SecretKey {
+impl<'de> Deserialize<'de> for Signature {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -154,69 +194,22 @@ impl<'de> Deserialize<'de> for SecretKey {
     }
 }
 
-impl Drop for SecretKey {
-    fn drop(&mut self) {
-        self.0.iter_mut().for_each(|x| *x = 0);
+impl Default for Signature {
+    fn default() -> Self {
+        Signature([0u8; 96])
     }
 }
 
 pub fn generate_production_keypair() -> (PublicKey, SecretKey) {
-    generate_keypair(&mut OsRng)
-}
+    // gen rand sk
+    let mut rng = rand::thread_rng();
+    let mut ikm = [0u8; 32];
+    rng.fill_bytes(&mut ikm);
+    let sk = SecretKey::key_gen(&ikm, &[]).unwrap();
 
-pub fn generate_keypair<R>(csprng: &mut R) -> (PublicKey, SecretKey)
-where
-    R: CryptoRng + RngCore,
-{
-    let keypair = dalek::Keypair::generate(csprng);
-    let public = PublicKey(keypair.public.to_bytes());
-    let secret = SecretKey(keypair.to_bytes());
-    (public, secret)
-}
-
-/// Represents an ed25519 signature.
-#[derive(Serialize, Deserialize, Clone, Default, Debug)]
-pub struct Signature {
-    part1: [u8; 32],
-    part2: [u8; 32],
-}
-
-impl Signature {
-    pub fn new(digest: &Digest, secret: &SecretKey) -> Self {
-        let keypair = dalek::Keypair::from_bytes(&secret.0).expect("Unable to load secret key");
-        let sig = keypair.sign(&digest.0).to_bytes();
-        let part1 = sig[..32].try_into().expect("Unexpected signature length");
-        let part2 = sig[32..64].try_into().expect("Unexpected signature length");
-        Signature { part1, part2 }
-    }
-
-    fn flatten(&self) -> [u8; 64] {
-        [self.part1, self.part2]
-            .concat()
-            .try_into()
-            .expect("Unexpected signature length")
-    }
-
-    pub fn verify(&self, digest: &Digest, public_key: &PublicKey) -> Result<(), CryptoError> {
-        let signature = ed25519::signature::Signature::from_bytes(&self.flatten())?;
-        let key = dalek::PublicKey::from_bytes(&public_key.0)?;
-        key.verify_strict(&digest.0, &signature)
-    }
-
-    pub fn verify_batch<'a, I>(digest: &Digest, votes: I) -> Result<(), CryptoError>
-    where
-        I: IntoIterator<Item = &'a (PublicKey, Signature)>,
-    {
-        let mut messages: Vec<&[u8]> = Vec::new();
-        let mut signatures: Vec<dalek::Signature> = Vec::new();
-        let mut keys: Vec<dalek::PublicKey> = Vec::new();
-        for (key, sig) in votes.into_iter() {
-            messages.push(&digest.0[..]);
-            signatures.push(ed25519::signature::Signature::from_bytes(&sig.flatten())?);
-            keys.push(dalek::PublicKey::from_bytes(&key.0)?);
-        }
-        dalek::verify_batch(&messages[..], &signatures[..], &keys[..])
-    }
+    // calculate pk
+    let pk = sk.sk_to_pk();
+    (PublicKey(pk.to_bytes()), sk)
 }
 
 /// This service holds the node's private key. It takes digests as input and returns a signature
@@ -228,11 +221,12 @@ pub struct SignatureService {
 
 impl SignatureService {
     pub fn new(secret: SecretKey) -> Self {
-        let (tx, mut rx): (Sender<(_, oneshot::Sender<_>)>, _) = channel(100);
+        let (tx, mut rx): (Sender<(Digest, oneshot::Sender<Signature>)>, _) = channel(100);
         tokio::spawn(async move {
             while let Some((digest, sender)) = rx.recv().await {
-                let signature = Signature::new(&digest, &secret);
-                let _ = sender.send(signature);
+                let dst = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
+                let signature = secret.sign(&digest.to_vec(), dst, &[]);
+                let _ = sender.send(Signature(signature.to_bytes()));
             }
         });
         Self { channel: tx }

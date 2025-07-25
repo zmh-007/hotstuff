@@ -1,7 +1,7 @@
 use std::time::Duration;
 use crate::config::{Committee, Stake};
 use crate::mempool::SerializedTransaction;
-use circuit::Digest;
+use crypto::PublicKey;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use network::CancelHandler;
@@ -20,7 +20,7 @@ pub struct QuorumWaiterMessage {
     /// A serialized `MempoolMessage::Batch` message.
     pub transaction: SerializedTransaction,
     /// The cancel handlers to receive the acknowledgements of our broadcast.
-    pub handlers: Vec<(Digest, CancelHandler)>,
+    pub handlers: Vec<(PublicKey, CancelHandler)>,
 }
 
 /// The QuorumWaiter waits for 2f authorities to acknowledge reception of a batch.

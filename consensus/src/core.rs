@@ -11,7 +11,7 @@ use crate::timer::Timer;
 use async_recursion::async_recursion;
 use bincode::deserialize;
 use bytes::Bytes;
-use circuit::{Digest, Hash, ProofService};
+use crypto::{Hash, PublicKey, SignatureService};
 use l0::Transaction;
 use log::{debug, error, info, warn};
 use mempool::TransactionFields;
@@ -23,10 +23,10 @@ use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 pub struct Core {
-    name: Digest,
+    name: PublicKey,
     committee: Committee,
     store: Store,
-    proof_service: ProofService,
+    signature_service: SignatureService,
     leader_elector: LeaderElector,
     mempool_driver: MempoolDriver,
     synchronizer: Synchronizer,
@@ -46,9 +46,9 @@ pub struct Core {
 impl Core {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
-        name: Digest,
+        name: PublicKey,
         committee: Committee,
-        proof_service: ProofService,
+        signature_service: SignatureService,
         store: Store,
         leader_elector: LeaderElector,
         mempool_driver: MempoolDriver,
@@ -63,7 +63,7 @@ impl Core {
             Self {
                 name,
                 committee: committee.clone(),
-                proof_service,
+                signature_service,
                 store,
                 leader_elector,
                 mempool_driver,
@@ -111,7 +111,7 @@ impl Core {
         // Ensure we won't vote for contradicting blocks.
         self.increase_last_voted_round(block.round);
         // TODO [issue #15]: Write to storage preferred_round and last_voted_round.
-        Some(Vote::new(block, self.name.clone(), self.proof_service.clone()).await)
+        Some(Vote::new(block, self.name.clone(), self.signature_service.clone()).await)
     }
 
     async fn commit(&mut self, block: Block) -> ConsensusResult<()> {
@@ -163,7 +163,6 @@ impl Core {
                 }
             }
 
-            let sync_block = block.aggregated_block(parent, &self.committee, transactions);
             if let Err(e) = self.tx_commit.send(block).await {
                 warn!("Failed to send block through the commit channel: {}", e);
             }
@@ -188,7 +187,7 @@ impl Core {
             self.high_qc.clone(),
             self.round,
             self.name.clone(),
-            self.proof_service.clone(),
+            self.signature_service.clone(),
         )
         .await;
         debug!("Created {:?}", timeout);

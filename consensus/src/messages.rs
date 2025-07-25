@@ -1,65 +1,32 @@
 use crate::config::Committee;
 use crate::consensus::{Round, ToHash};
 use crate::error::{ConsensusError, ConsensusResult};
-use log::debug;
+use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
 use placeholder_project_name_placeholder_zk::hash::poseidon::PoseidonHash;
-use placeholder_project_name_placeholder_zk::placeholder_project_name_placeholder_patch::{PlaceholderProjectNamePlaceholderHash, PlaceholderProjectNamePlaceholderProof, PlaceholderProjectNamePlaceholderVerifierOnlyCircuitData, PlaceholderProjectNamePlaceholderField};
-use placeholder_project_name_placeholder_zk::plonk::circuit_data::VerifierCircuitData;
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
+use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
-use base64::{Engine as _, engine::general_purpose};
-use circuit::{AggCircuit, Digest, Hash, ProofService, TransCircuit};
-use placeholder_project_name_placeholder_zk::plonk::config::{Hasher, PoseidonGoldilocksConfig};
-use placeholder_project_name_placeholder_zk::plonk::proof::Proof;
-use placeholder_project_name_placeholder_zk::field::goldilocks_field::GoldilocksField;
-use placeholder_project_name_placeholder_zk::util::serialization::DefaultGateSerializer;
-use placeholder_project_name_placeholder_zk::plonk::proof::ProofWithPublicInputs;
+use placeholder_project_name_placeholder_zk::plonk::config::Hasher;
 use placeholder_project_name_placeholder_zk::hash::hash_types::HashOut;
-use l0::Transaction;
-
-pub struct SyncBlock(pub Vec<PlaceholderProjectNamePlaceholderField>);
-
-impl Serialize for SyncBlock {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let u64_vec: Vec<u64> = self.0.iter().map(|field| (*field).into()).collect();
-        serializer.collect_seq(u64_vec)
-    }
-}
-
-impl<'de> Deserialize<'de> for SyncBlock {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let u64_vec = Vec::<u64>::deserialize(deserializer)?;
-        let fields = u64_vec.into_iter().map(|u| {PlaceholderProjectNamePlaceholderField::from(u)}).collect(); //TODO: overflow?
-        Ok(SyncBlock(fields))
-    }
-}
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Block {
     pub qc: QC,
     pub tc: Option<TC>,
-    pub author: Digest,
+    pub author: PublicKey,
     pub round: Round,
     pub payload: Vec<Digest>,
-    pub proof: Option<Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>>,
+    pub signature: Signature,
 }
 
 impl Block {
     pub async fn new(
         qc: QC,
         tc: Option<TC>,
-        author: Digest,
+        author: PublicKey,
         round: Round,
         payload: Vec<Digest>,
-        mut proof_service: ProofService,
+        mut signature_service: SignatureService,
     ) -> Self {
         let block = Self {
             qc,
@@ -67,10 +34,10 @@ impl Block {
             author,
             round,
             payload,
-            proof: None,
+            signature: Signature::default(),
         };
-        let proof = proof_service.request_proof(block.digest()).await;
-        Self { proof: Some(proof), ..block }
+        let sig = signature_service.request_signature(block.digest()).await;
+        Self { signature: sig, ..block }
     }
 
     pub fn genesis() -> Self {
@@ -95,7 +62,7 @@ impl Block {
         );
 
         // Check the author proof.
-        verify_proof(&self.digest(), &self.author, committee, self.proof.clone().unwrap());
+        verify_signature(&self.digest(), &self.author, &self.signature);
 
         // Check the embedded QC.
         if self.qc != QC::genesis() {
@@ -108,56 +75,11 @@ impl Block {
         }
         Ok(())
     }
-
-    pub fn aggregated_block(&self, parent: Block, committee: &Committee, transactions:Vec<Transaction>) -> SyncBlock {
-        let vds = self.qc.votes
-            .iter()
-            .map(|v| {
-                let vd_encoded = committee.authorities.get(&v.0)
-                    .map(|auth| auth.vd.clone())
-                    .unwrap();
-                let vd_decoded = general_purpose::STANDARD.decode(&vd_encoded).unwrap();
-                VerifierCircuitData::from_bytes(vd_decoded, &DefaultGateSerializer).unwrap()
-            }).collect::<Vec<_>>();
-        let last_tail = parent.qc.last_tail.0;
-        let agg_circuit = AggCircuit::new(vds.clone());
-        let proofs_with_inputs = self.qc.votes
-            .iter()
-            .map(|(_, proof)| {
-                ProofWithPublicInputs {
-                    proof: proof.clone(),
-                    public_inputs: self.qc.digest().to_vec_field(),
-                }
-            }).collect::<Vec<_>>();
-        let agg_proof = agg_circuit.prove(proofs_with_inputs, parent.author.0, parent.round.to_hash(), parent.qc.hash.0, last_tail, parent.tx_tail().0);
-        let trans_circuit = TransCircuit::new(agg_circuit.vd());
-        let consensus = PlaceholderProjectNamePlaceholderVerifierOnlyCircuitData::try_from(trans_circuit.vk()).unwrap();
-        let consensus_array: [GoldilocksField; 68] = consensus.into();
-        let meta = PlaceholderProjectNamePlaceholderHash::default();
-        let trans_proof = trans_circuit.prove(
-                ProofWithPublicInputs {
-                    proof: agg_proof.clone(),
-                    public_inputs: [last_tail.elements, parent.tx_tail().0.elements].concat(),
-                },
-                consensus_array,
-                meta.into(),
-            );
-        let mut public_inputs = Vec::new();
-        public_inputs.extend_from_slice(&last_tail.elements);
-        public_inputs.extend_from_slice(&parent.tx_tail().0.elements);
-        public_inputs.extend_from_slice(&consensus_array);
-        public_inputs.extend_from_slice(&HashOut::<GoldilocksField>::from(meta).elements);
-        trans_circuit.vd().verify(ProofWithPublicInputs {proof: trans_proof.clone(), public_inputs}).expect("aggregated proof verification failed");
-        let l0_proof = PlaceholderProjectNamePlaceholderProof::try_from(trans_proof.clone()).unwrap();
-        let l0_block = l0::Block{last: PlaceholderProjectNamePlaceholderHash::from(last_tail), meta, consensus, transactions, proof: l0_proof};
-        debug!("Aggregated block, last: {:?}, tx_num: {}", l0_block.last, l0_block.transactions.len());
-        SyncBlock(l0_block.try_into().unwrap())
-    }
 }
 
 impl Hash for Block {
     fn digest(&self) -> Digest {
-        let h1= PoseidonHash::two_to_one(HashOut::from_vec(self.author.to_vec_field()), self.round.to_hash());
+        let h1= PoseidonHash::two_to_one(self.author.to_hash(), self.round.to_hash());
         let h2 = PoseidonHash::two_to_one(h1, HashOut::from_vec(self.qc.hash.to_vec_field()));
         let h3 = PoseidonHash::two_to_one(h2, HashOut::from_vec(self.qc.last_tail.to_vec_field()));
         let tx_tail = self.payload.iter().fold(self.qc.last_tail.0, |x, y| PoseidonHash::two_to_one(x, y.0));
@@ -191,25 +113,25 @@ pub struct Vote {
     pub hash: Digest,
     pub round: Round,
     pub tx_tail: Digest,
-    pub author: Digest,
-    pub proof: Option<Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>>,
+    pub author: PublicKey,
+    pub signature: Signature,
 }
 
 impl Vote {
     pub async fn new(
         block: &Block,
-        author: Digest,
-        mut proof_service: ProofService,
+        author: PublicKey,
+        mut signature_service: SignatureService,
     ) -> Self {
         let vote = Self {
             hash: block.digest(),
             round: block.round,
             tx_tail: block.tx_tail(),
             author,
-            proof: None,
+            signature: Signature::default(),
         };
-        let proof = proof_service.request_proof(vote.digest()).await;
-        Self { proof: Some(proof), ..vote }
+        let sig = signature_service.request_signature(vote.digest()).await;
+        Self { signature: sig, ..vote }
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
@@ -220,7 +142,7 @@ impl Vote {
         );
 
         // Check the proof.
-        verify_proof(&self.digest(), &self.author, committee, self.proof.clone().unwrap());
+        verify_signature(&self.digest(), &self.author, &self.signature);
         Ok(())
     }
 }
@@ -244,7 +166,7 @@ pub struct QC {
     pub hash: Digest,
     pub round: Round,
     pub last_tail: Digest,
-    pub votes: Vec<(Digest, Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>)>,
+    pub votes: Vec<(PublicKey, Signature)>,
 }
 
 impl QC {
@@ -273,8 +195,8 @@ impl QC {
         );
 
         // Check the proof.
-        for (author, proof) in &self.votes {
-            verify_proof(&self.digest(), author, committee, proof.clone());
+        for (author, sig) in &self.votes {
+            verify_signature(&self.digest(), author, sig);
         }
         Ok(())
     }
@@ -304,28 +226,25 @@ impl PartialEq for QC {
 pub struct Timeout {
     pub high_qc: QC,
     pub round: Round,
-    pub author: Digest,
-    pub proof: Option<Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>>,
+    pub author: PublicKey,
+    pub signature: Signature,
 }
 
 impl Timeout {
     pub async fn new(
         high_qc: QC,
         round: Round,
-        author: Digest,
-        mut proof_service: ProofService,
+        author: PublicKey,
+        mut signature_service: SignatureService,
     ) -> Self {
         let timeout = Self {
             high_qc,
             round,
             author,
-            proof: None,
+            signature: Signature::default(),
         };
-        let proof = proof_service.request_proof(timeout.digest()).await;
-        Self {
-            proof: Some(proof),
-            ..timeout
-        }
+        let sig = signature_service.request_signature(timeout.digest()).await;
+        Self {signature: sig, ..timeout}
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
@@ -336,7 +255,7 @@ impl Timeout {
         );
 
         // Check the proof.
-        verify_proof(&self.digest(), &self.author, committee, self.proof.clone().unwrap());
+        verify_signature(&self.digest(), &self.author, &self.signature);
 
         // Check the embedded QC.
         if self.high_qc != QC::genesis() {
@@ -362,7 +281,7 @@ impl fmt::Debug for Timeout {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TC {
     pub round: Round,
-    pub votes: Vec<(Digest, Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>, Round)>,
+    pub votes: Vec<(PublicKey, Signature, Round)>,
 }
 
 impl TC {
@@ -383,10 +302,10 @@ impl TC {
         );
 
         // Check the proofs.
-        for (author, proof, high_qc_round) in &self.votes {
+        for (author, sig, high_qc_round) in &self.votes {
             let h1= PoseidonHash::two_to_one(self.round.to_hash(), high_qc_round.to_hash());
             let digest = Digest(h1);
-            verify_proof(&digest, author, committee, proof.clone());
+            verify_signature(&digest, author, sig);
         }
         Ok(())
     }
@@ -402,9 +321,17 @@ impl fmt::Debug for TC {
     }
 }
 
-fn verify_proof(digest: &Digest, author: &Digest, committee: &Committee, proof: Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>) {
-    let vd_encoded = committee.authorities.get(author).map(|auth| auth.vd.clone()).unwrap();
-    let vd_decoded = general_purpose::STANDARD.decode(&vd_encoded).unwrap();
-    let vd = VerifierCircuitData::from_bytes(vd_decoded, &DefaultGateSerializer).unwrap();
-    vd.verify(ProofWithPublicInputs { proof: proof.into(), public_inputs: digest.to_vec_field() }).expect("proof verification failed");
+fn verify_signature(digest: &Digest, author: &PublicKey, sig: &Signature) {
+    let dst = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
+    let signature = blst::min_pk::Signature::from_bytes(&sig.0).expect("Invalid signature bytes");
+    let pk = blst::min_pk::PublicKey::from_bytes(&author.0).expect("Invalid public key bytes");
+    let err = signature.verify(true, &digest.to_vec(), dst, &[], &pk, true);
+    assert_eq!(err, blst::BLST_ERROR::BLST_SUCCESS);
 }
+
+// fn verify_proof(digest: &Digest, author: &Digest, committee: &Committee, proof: Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>) {
+//     let vd_encoded = committee.authorities.get(author).map(|auth| auth.vd.clone()).unwrap();
+//     let vd_decoded = general_purpose::STANDARD.decode(&vd_encoded).unwrap();
+//     let vd = VerifierCircuitData::from_bytes(vd_decoded, &DefaultGateSerializer).unwrap();
+//     vd.verify(ProofWithPublicInputs { proof: proof.into(), public_inputs: digest.to_vec_field() }).expect("proof verification failed");
+// }

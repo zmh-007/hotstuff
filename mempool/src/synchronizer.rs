@@ -1,7 +1,7 @@
 use crate::config::Committee;
 use crate::mempool::{ConsensusMempoolMessage, MempoolMessage, Round};
 use bytes::Bytes;
-use circuit::Digest;
+use crypto::{Digest, PublicKey};
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
 use log::{debug, error};
@@ -18,7 +18,7 @@ const TIMER_RESOLUTION: u64 = 1_000;
 // The `Synchronizer` is responsible to keep the mempool in sync with the others.
 pub struct Synchronizer {
     /// The public key of this authority.
-    name: Digest,
+    name: PublicKey,
     /// The committee information.
     committee: Committee,
     // The persistent storage.
@@ -45,7 +45,7 @@ pub struct Synchronizer {
 impl Synchronizer {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
-        name: Digest,
+        name: PublicKey,
         committee: Committee,
         store: Store,
         gc_depth: Round,

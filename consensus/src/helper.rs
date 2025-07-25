@@ -1,7 +1,7 @@
 use crate::config::Committee;
 use crate::consensus::ConsensusMessage;
 use bytes::Bytes;
-use circuit::Digest;
+use crypto::{Digest, PublicKey};
 use log::warn;
 use network::SimpleSender;
 use store::Store;
@@ -14,13 +14,13 @@ pub struct Helper {
     /// The persistent storage.
     store: Store,
     /// Input channel to receive sync requests.
-    rx_requests: Receiver<(Digest, Digest)>,
+    rx_requests: Receiver<(Digest, PublicKey)>,
     /// A network sender to reply to the sync requests.
     network: SimpleSender,
 }
 
 impl Helper {
-    pub fn spawn(committee: Committee, store: Store, rx_requests: Receiver<(Digest, Digest)>) {
+    pub fn spawn(committee: Committee, store: Store, rx_requests: Receiver<(Digest, PublicKey)>) {
         tokio::spawn(async move {
             Self {
                 committee,
