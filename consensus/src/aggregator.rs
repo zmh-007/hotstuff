@@ -3,6 +3,7 @@ use crate::consensus::Round;
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::messages::{Timeout, Vote, QC, TC};
 use std::collections::{HashMap, HashSet};
+use blst::min_pk::{AggregatePublicKey, AggregateSignature};
 use crypto::{Digest, Hash, PublicKey, Signature};
 
 pub struct Aggregator {
@@ -79,11 +80,24 @@ impl QCMaker {
         self.weight += committee.stake(&author);
         if self.weight >= committee.quorum_threshold() {
             self.weight = 0; // Ensures QC is only made once.
+            let mut public_keys = Vec::with_capacity(self.votes.len());
+            let mut signatures = Vec::with_capacity(self.votes.len());
+
+            for (pk, sig) in self.votes.iter() {
+                public_keys.push(blst::min_pk::PublicKey::from_bytes(&pk.0).expect("Invalid public key bytes"));
+                signatures.push(blst::min_pk::Signature::from_bytes(&sig.0).expect("Invalid signature bytes"));
+            }
+            let pks: Vec<_> = public_keys.iter().collect();
+            let aggregated_pk = AggregatePublicKey::aggregate(&pks, true).expect("failed to aggregate public keys");
+            let sig_refs: Vec<_> = signatures.iter().collect();
+            let aggregated_sig = AggregateSignature::aggregate(&sig_refs, true).expect("Failed to aggregate signatures");
             return Ok(Some(QC {
                 hash: vote.hash.clone(),
                 round: vote.round,
                 last_tail: vote.tx_tail,
                 votes: self.votes.clone(),
+                aggregated_pk: PublicKey(aggregated_pk.to_public_key().to_bytes()),
+                aggregated_signature: Signature(aggregated_sig.to_signature().to_bytes()),
             }));
         }
         Ok(None)

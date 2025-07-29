@@ -1,6 +1,7 @@
 use crate::config::Committee;
 use crate::consensus::{Round, ToHash};
 use crate::error::{ConsensusError, ConsensusResult};
+use blst::min_pk::AggregatePublicKey;
 use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
 use placeholder_project_name_placeholder_zk::hash::poseidon::PoseidonHash;
 use serde::{Serialize, Deserialize};
@@ -167,6 +168,8 @@ pub struct QC {
     pub round: Round,
     pub last_tail: Digest,
     pub votes: Vec<(PublicKey, Signature)>,
+    pub aggregated_pk: PublicKey, 
+    pub aggregated_signature: Signature,
 }
 
 impl QC {
@@ -194,10 +197,20 @@ impl QC {
             ConsensusError::QCRequiresQuorum
         );
 
-        // Check the proof.
+        // Check the signature.
         for (author, sig) in &self.votes {
             verify_signature(&self.digest(), author, sig);
         }
+        // Check the aggregated pk.
+        let mut public_keys = Vec::with_capacity(self.votes.len());
+        for (pk, _) in self.votes.iter() {
+            public_keys.push(blst::min_pk::PublicKey::from_bytes(&pk.0).expect("Invalid public key bytes"));
+        }
+        let pks: Vec<_> = public_keys.iter().collect();
+        let aggregated_pk = AggregatePublicKey::aggregate(&pks, true).expect("failed to aggregate public keys");
+        assert_eq!(self.aggregated_pk, PublicKey(aggregated_pk.to_public_key().to_bytes()), "Aggregated public key does not match the expected value");
+        // Check the aggregated signature.
+        verify_signature(&self.digest(), &self.aggregated_pk, &self.aggregated_signature);
         Ok(())
     }
 }
