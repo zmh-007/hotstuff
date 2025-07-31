@@ -10,6 +10,16 @@ use std::fmt;
 use zk::{deserialize_be_fr, Fr, FrSerialization, ToHash};
 
 #[derive(Serialize, Deserialize, Default, Clone)]
+pub struct FullBlock {
+    pub qc: QC,
+    pub tc: Option<TC>,
+    pub author: PublicKey,
+    pub round: Round,
+    pub payload: Vec<Vec<u8>>,
+    pub signature: Signature,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Block {
     pub qc: QC,
     pub tc: Option<TC>,

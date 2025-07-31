@@ -50,8 +50,6 @@ node_params = {
         'gc_depth': 50,
         'sync_retry_delay': 5_000,  # ms
         'sync_retry_nodes': 3,
-        'batch_size': 500_000,      # bytes
-        'max_batch_delay': 100      # ms
     }
 }
 ```

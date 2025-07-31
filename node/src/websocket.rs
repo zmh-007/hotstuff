@@ -10,7 +10,7 @@ use tokio_tungstenite::{
     accept_async, 
     tungstenite::Message as WsMessage
 };
-use consensus::{Block, WebSocketEvent};
+use consensus::{Block, FullBlock, WebSocketEvent};
 use futures::{SinkExt, StreamExt};
 
 
@@ -28,7 +28,7 @@ pub enum Message {
 pub enum WebSocketError {
     SerializationError(Box<bincode::ErrorKind>),
     NetworkError(std::io::Error),
-    MessageError(String),
+    // MessageError(String),
 }
 
 impl std::fmt::Display for WebSocketError {
@@ -36,7 +36,7 @@ impl std::fmt::Display for WebSocketError {
         match self {
             WebSocketError::SerializationError(e) => write!(f, "Serialization error: {}", e),
             WebSocketError::NetworkError(e) => write!(f, "Network error: {}", e),
-            WebSocketError::MessageError(e) => write!(f, "Message error: {}", e),
+            // WebSocketError::MessageError(e) => write!(f, "Message error: {}", e),
         }
     }
 }
@@ -56,7 +56,7 @@ impl From<std::io::Error> for WebSocketError {
 }
 
 pub struct ClientConnection {
-    pub id: String,
+    // pub id: String,
     pub sender: mpsc::UnboundedSender<Message>,
     pub subscribed: bool,
 }
@@ -74,9 +74,6 @@ pub enum ServerMessage {
     },
     Unsubscribe {
         client_id: String,
-    },
-    BroadcastChainUpdate {
-        hash: Vec<u8>,
     },
     SendBlocks {
         client_id: String,
@@ -168,7 +165,6 @@ impl WebSocketServer {
         let client_id_for_receive = client_id.clone();
         let mempool_tx_for_receive = mempool_tx.clone();
         let message_sender_for_receive = message_sender.clone();
-        let client_tx_for_receive = client_tx.clone();
         let mut store_for_receive = store.clone();
         
         let receive_task = tokio::spawn(async move {
@@ -183,7 +179,6 @@ impl WebSocketServer {
                                     &mempool_tx_for_receive,
                                     &message_sender_for_receive,
                                     &client_id_for_receive,
-                                    &client_tx_for_receive,
                                 ).await;
                             }
                             Err(e) => {
@@ -200,7 +195,6 @@ impl WebSocketServer {
                                     &mempool_tx_for_receive,
                                     &message_sender_for_receive,
                                     &client_id_for_receive,
-                                    &client_tx_for_receive,
                                 ).await;
                             }
                             Err(e) => {
@@ -252,7 +246,7 @@ impl WebSocketServer {
                 ServerMessage::NewClient { id, sender } => {
                     let mut clients_guard = clients.write().await;
                     clients_guard.insert(id.clone(), ClientConnection {
-                        id: id.clone(),
+                        // id: id.clone(),
                         sender,
                         subscribed: false,
                     });
@@ -281,18 +275,6 @@ impl WebSocketServer {
                     }
                 }
                 
-                ServerMessage::BroadcastChainUpdate { hash } => {
-                    let clients_guard = clients.read().await;
-                    for (_, client) in clients_guard.iter() {
-                        if client.subscribed {
-                            let chain_update_msg = Message::ChainUpdate(hash.clone());
-                            if let Err(e) = client.sender.send(chain_update_msg) {
-                                error!("Failed to send chain update to client {}: {}", client.id, e);
-                            }
-                        }
-                    }
-                }
-                
                 ServerMessage::SendBlocks { client_id, blocks } => {
                     let clients_guard = clients.read().await;
                     if let Some(client) = clients_guard.get(&client_id) {
@@ -314,7 +296,6 @@ impl WebSocketServer {
         mempool_tx: &mpsc::Sender<SerializedTransaction>,
         message_sender: &mpsc::UnboundedSender<ServerMessage>,
         client_id: &str,
-        client_tx: &mpsc::UnboundedSender<Message>,
     ) {
         match message {
             Message::SubscribeChainUpdate => {
@@ -347,7 +328,24 @@ impl WebSocketServer {
                 for hash in hashes {
                     if let Some(block_data) = Self::get_block_by_hash(store, &hash).await {
                         if let Ok(block) = bincode::deserialize::<Block>(&block_data) {
-                            blocks.push(block_data);
+                            let mut txs = Vec::new();
+                            for tx_hash in block.payload {
+                                if let Some(tx_data) = Self::get_tx_by_hash(store, &hash).await {
+                                    txs.push(tx_data);
+                                }
+                                else {
+                                    error!("Transaction not found for hash: {:?}", tx_hash);
+                                }
+                            }
+                            let full_block = FullBlock {
+                                qc: block.qc.clone(),
+                                tc: block.tc.clone(),
+                                author: block.author.clone(),
+                                payload: txs,
+                                round: block.round,
+                                signature: block.signature.clone(),
+                            };
+                            blocks.push(bincode::serialize(&full_block).expect("Failed to serialize full block"));
                         } else {
                             error!("Failed to deserialize block data for hash: {:?}", hash);
                         }
@@ -365,10 +363,10 @@ impl WebSocketServer {
                 });
             }
             
-            Message::Blocks(blocks) => {
+            Message::Blocks(_) => {
             }
             
-            Message::ChainUpdate(chain_updates) => {
+            Message::ChainUpdate(_) => {
             }
             
         }
@@ -389,6 +387,26 @@ impl WebSocketServer {
             },
             Err(e) => {
                 error!("Error getting block data for hash {:?}: {}", hash, e);
+                None
+            }
+        }
+    }
+
+    async fn get_tx_by_hash(
+        store: &mut Store,
+        hash: &Vec<u8>,
+    ) -> Option<Vec<u8>> {
+        match store.read(hash.to_vec()).await {
+            Ok(Some(data)) => {
+                debug!("Successfully retrieved tx data for hash: {:?}", hash);
+                Some(data)
+            },
+            Ok(None) => {
+                debug!("No tx data found for hash: {:?}", hash);
+                None
+            },
+            Err(e) => {
+                error!("Error getting tx data for hash {:?}: {}", hash, e);
                 None
             }
         }

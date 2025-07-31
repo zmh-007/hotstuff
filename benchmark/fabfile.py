@@ -28,7 +28,6 @@ def local(ctx):
             "sync_retry_delay": 5_000,
             "sync_retry_nodes": 3,
             "batch_size": 15_000,
-            "max_batch_delay": 10,
         },
     }
     try:
@@ -113,8 +112,6 @@ def remote(ctx):
             "gc_depth": 50,
             "sync_retry_delay": 5_000,
             "sync_retry_nodes": 3,
-            "batch_size": 500_000,
-            "max_batch_delay": 100,
         },
     }
     try:

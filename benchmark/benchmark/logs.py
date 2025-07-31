@@ -132,9 +132,6 @@ class LogParser:
                 'batch_size': int(
                     search(r'Batch size .* (\d+)', log).group(1)
                 ),
-                'max_batch_delay': int(
-                    search(r'Max batch delay .* (\d+)', log).group(1)
-                ),
             }
         }
 
@@ -191,7 +188,6 @@ class LogParser:
         mempool_sync_retry_delay = self.configs[0]['mempool']['sync_retry_delay']
         mempool_sync_retry_nodes = self.configs[0]['mempool']['sync_retry_nodes']
         mempool_batch_size = self.configs[0]['mempool']['batch_size']
-        mempool_max_batch_delay = self.configs[0]['mempool']['max_batch_delay']
 
         return (
             '\n'
@@ -210,8 +206,6 @@ class LogParser:
             f' Mempool GC depth: {mempool_gc_depth:,} rounds\n'
             f' Mempool sync retry delay: {mempool_sync_retry_delay:,} ms\n'
             f' Mempool sync retry nodes: {mempool_sync_retry_nodes:,} nodes\n'
-            f' Mempool batch size: {mempool_batch_size:,} B\n'
-            f' Mempool max batch delay: {mempool_max_batch_delay:,} ms\n'
             '\n'
             ' + RESULTS:\n'
             f' Consensus TPS: {round(consensus_tps):,} tx/s\n'
