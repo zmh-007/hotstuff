@@ -341,8 +341,10 @@ impl WebSocketServer {
                                 qc: block.qc.clone(),
                                 tc: block.tc.clone(),
                                 author: block.author.clone(),
-                                payload: txs,
                                 round: block.round,
+                                payload: txs,
+                                txg: block.txg.clone(),
+                                next: block.next.clone(),
                                 signature: block.signature.clone(),
                             };
                             blocks.push(bincode::serialize(&full_block).expect("Failed to serialize full block"));

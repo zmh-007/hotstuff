@@ -66,6 +66,8 @@ impl Proposer {
             self.name.clone(),
             round,
             /* payload */ self.buffer.drain().collect(),
+            [0u8; 32].to_vec(),  // TODO: Placeholder for txg
+            ([0u8; 32].to_vec(), [0u8; 32].to_vec()), // TODO: Placeholder for next
             self.signature_service.clone(),
         )
         .await;

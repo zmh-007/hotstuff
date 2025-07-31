@@ -16,6 +16,8 @@ pub struct FullBlock {
     pub author: PublicKey,
     pub round: Round,
     pub payload: Vec<Vec<u8>>,
+    pub txg: Vec<u8>,
+    pub next: (Vec<u8>, Vec<u8>),
     pub signature: Signature,
 }
 
@@ -26,6 +28,8 @@ pub struct Block {
     pub author: PublicKey,
     pub round: Round,
     pub payload: Vec<Digest>,
+    pub txg: Vec<u8>,
+    pub next: (Vec<u8>, Vec<u8>),
     pub signature: Signature,
 }
 
@@ -36,6 +40,8 @@ impl Block {
         author: PublicKey,
         round: Round,
         payload: Vec<Digest>,
+        txg: Vec<u8>,
+        next: (Vec<u8>, Vec<u8>),
         mut signature_service: SignatureService,
     ) -> Self {
         let block = Self {
@@ -44,6 +50,8 @@ impl Block {
             author,
             round,
             payload,
+            txg,
+            next,
             signature: Signature::default(),
         };
         let sig = signature_service.request_signature(block.digest()).await;
