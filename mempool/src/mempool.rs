@@ -10,11 +10,10 @@ use crypto::{Digest, PublicKey};
 use futures::sink::SinkExt as _;
 use log::{info, warn};
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
-use placeholder_project_name_placeholder_zk::placeholder_project_name_placeholder_patch::PlaceholderProjectNamePlaceholderField;
 use std::error::Error;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
+use serde::{Serialize, Deserialize};
 
 /// The default channel capacity for each channel of the mempool.
 pub const CHANNEL_CAPACITY: usize = 1_000;
@@ -23,29 +22,6 @@ pub const CHANNEL_CAPACITY: usize = 1_000;
 pub type Round = u64;
 
 pub type SerializedTransaction = Vec<u8>;
-
-pub struct TransactionFields(pub Vec<PlaceholderProjectNamePlaceholderField>);
-
-impl Serialize for TransactionFields {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let u64_vec: Vec<u64> = self.0.iter().map(|field| (*field).into()).collect();
-        serializer.collect_seq(u64_vec)
-    }
-}
-
-impl<'de> Deserialize<'de> for TransactionFields {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let u64_vec = Vec::<u64>::deserialize(deserializer)?;
-        let fields = u64_vec.into_iter().map(|u| {PlaceholderProjectNamePlaceholderField::from(u)}).collect(); //TODO: overflow?
-        Ok(TransactionFields(fields))
-    }
-}
 
 /// The message exchanged between the nodes' mempool.
 #[derive(Debug, Serialize, Deserialize)]
@@ -84,7 +60,7 @@ impl Mempool {
         store: Store,
         rx_consensus: Receiver<ConsensusMempoolMessage>,
         tx_consensus: Sender<Digest>,
-    ) {
+    ) -> Sender<SerializedTransaction> {
         // NOTE: This log entry is used to compute performance.
         parameters.log();
 
@@ -99,7 +75,7 @@ impl Mempool {
 
         // Spawn all mempool tasks.
         mempool.handle_consensus_messages(rx_consensus);
-        mempool.handle_clients_transactions();
+        let tx_transaction_broadcaster = mempool.handle_clients_transactions();
         mempool.handle_mempool_messages();
 
         info!(
@@ -110,6 +86,7 @@ impl Mempool {
                 .expect("Our public key is not in the committee")
                 .ip()
         );
+        tx_transaction_broadcaster
     }
 
     /// Spawn all tasks responsible to handle messages from the consensus.
@@ -128,7 +105,7 @@ impl Mempool {
     }
 
     /// Spawn all tasks responsible to handle clients transactions.
-    fn handle_clients_transactions(&self) {
+    fn handle_clients_transactions(&self) -> Sender<SerializedTransaction> {
         let (tx_transaction_broadcaster, rx_transaction_broadcaster) = channel(CHANNEL_CAPACITY);
         let (tx_quorum_waiter, rx_quorum_waiter) = channel(CHANNEL_CAPACITY);
         let (tx_processor, rx_processor) = channel(CHANNEL_CAPACITY);
@@ -141,7 +118,7 @@ impl Mempool {
         address.set_ip("0.0.0.0".parse().unwrap());
         NetworkReceiver::spawn(
             address,
-            /* handler */ TxReceiverHandler { tx_transaction_broadcaster },
+            /* handler */ TxReceiverHandler { tx_transaction_broadcaster: tx_transaction_broadcaster.clone() },
         );
 
         // The transactions are sent to the `BatchMaker` that assembles them into batches. It then broadcasts
@@ -171,6 +148,7 @@ impl Mempool {
         );
 
         info!("Mempool listening to client transactions on {}", address);
+        tx_transaction_broadcaster
     }
 
     /// Spawn all tasks responsible to handle messages from other mempools.

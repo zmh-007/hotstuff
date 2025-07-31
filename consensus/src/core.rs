@@ -4,21 +4,17 @@ use crate::consensus::{ConsensusMessage, Round};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::leader::LeaderElector;
 use crate::mempool::MempoolDriver;
-use crate::messages::{Block, Timeout, Vote, QC, TC};
+use crate::messages::{Block, Timeout, Vote, WebSocketEvent, QC, TC};
 use crate::proposer::ProposerMessage;
 use crate::synchronizer::Synchronizer;
 use crate::timer::Timer;
 use async_recursion::async_recursion;
-use bincode::deserialize;
 use bytes::Bytes;
 use crypto::{Hash, PublicKey, SignatureService};
-use l0::Transaction;
 use log::{debug, error, info, warn};
-use mempool::TransactionFields;
 use network::SimpleSender;
 use std::cmp::max;
 use std::collections::VecDeque;
-use std::convert::TryFrom;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -34,6 +30,7 @@ pub struct Core {
     rx_loopback: Receiver<Block>,
     tx_proposer: Sender<ProposerMessage>,
     tx_commit: Sender<Block>,
+    tx_websocket_event: Option<Sender<WebSocketEvent>>,
     round: Round,
     last_voted_round: Round,
     last_committed_round: Round,
@@ -58,6 +55,7 @@ impl Core {
         rx_loopback: Receiver<Block>,
         tx_proposer: Sender<ProposerMessage>,
         tx_commit: Sender<Block>,
+        tx_websocket_event: Option<Sender<WebSocketEvent>>,
     ) {
         tokio::spawn(async move {
             Self {
@@ -72,6 +70,7 @@ impl Core {
                 rx_loopback,
                 tx_proposer,
                 tx_commit,
+                tx_websocket_event,
                 round: 1,
                 last_voted_round: 0,
                 last_committed_round: 0,
@@ -148,21 +147,24 @@ impl Core {
                 }
             }
             debug!("Committed {:?}", block);
-            let parent = self.synchronizer.get_parent_block(&block).await?.expect("Parent block should exist");
             
-            let mut transactions = Vec::new();
-            for digest in &parent.payload {
-                match self.store.read(digest.to_vec()).await {
-                    Ok(Some(data)) => {
-                        let tf: TransactionFields = deserialize(&data).unwrap();
-                        let tx = Transaction::try_from(tf.0).unwrap();
-                        transactions.push(tx);
-                    },
-                    Ok(None) => (),
-                    Err(e) => error!("Error reading digest {}: {}", digest, e),
+            // push block to ws
+            if let Some(ref tx_ws_event) = self.tx_websocket_event {
+                if block.payload.len() > 0 {
+                    let hash = block.digest().to_vec();
+                    let broadcast_event = WebSocketEvent::BroadcastChainUpdate {
+                        hash: hash.clone()
+                    };
+                    if let Err(e) = tx_ws_event.send(broadcast_event).await {
+                        error!("Failed to send broadcast event to WebSocket: {}", e);
+                    } else {
+                        debug!("Sent broadcast chain update event for hash: {:?}", hash);
+                    }
                 }
+            } else {
+                    debug!("Skipped empty block storage and broadcast (tx_num: 0)");
             }
-
+            
             if let Err(e) = self.tx_commit.send(block).await {
                 warn!("Failed to send block through the commit channel: {}", e);
             }

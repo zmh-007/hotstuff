@@ -1,14 +1,13 @@
 use crate::config::Committee;
-use crate::consensus::{Round, ToHash};
+use crate::consensus::{Round, ToField};
 use crate::error::{ConsensusError, ConsensusResult};
 use blst::min_pk::AggregatePublicKey;
 use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
-use placeholder_project_name_placeholder_zk::hash::poseidon::PoseidonHash;
 use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
+use std::convert::TryInto;
 use std::fmt;
-use placeholder_project_name_placeholder_zk::plonk::config::Hasher;
-use placeholder_project_name_placeholder_zk::hash::hash_types::HashOut;
+use zk::{deserialize_be_fr, Fr, FrSerialization, ToHash};
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Block {
@@ -50,8 +49,10 @@ impl Block {
     }
 
     pub fn tx_tail(&self) -> Digest {
-        let tx_tail = self.payload.iter().fold(self.qc.last_tail.0, |x, y| PoseidonHash::two_to_one(x, y.0));
-        Digest(tx_tail)
+        let tx_tail = self.payload.iter().map(|v| -> Fr {deserialize_be_fr(&v.0[..]).expect("Failed to deserialize tx hash to Fr")}).hash();
+        let mut b = Vec::new();
+        tx_tail.serialize_be_compressed(&mut b).expect("Failed to serialize transaction tail hash to bytes");
+        Digest(b.try_into().expect("Failed to convert transaction tail hash bytes to digest"))
     }
 
     pub fn verify(&self, committee: &Committee) -> ConsensusResult<()> {
@@ -80,12 +81,18 @@ impl Block {
 
 impl Hash for Block {
     fn digest(&self) -> Digest {
-        let h1= PoseidonHash::two_to_one(self.author.to_hash(), self.round.to_hash());
-        let h2 = PoseidonHash::two_to_one(h1, HashOut::from_vec(self.qc.hash.to_vec_field()));
-        let h3 = PoseidonHash::two_to_one(h2, HashOut::from_vec(self.qc.last_tail.to_vec_field()));
-        let tx_tail = self.payload.iter().fold(self.qc.last_tail.0, |x, y| PoseidonHash::two_to_one(x, y.0));
-        let h4 = PoseidonHash::two_to_one(h3, tx_tail);
-        Digest(h4)
+        let tx_tail = self.payload.iter().map(|v| -> Fr {deserialize_be_fr(&v.0[..]).expect("Failed to deserialize tx hash to Fr")}).hash();
+        let elements = vec![
+            self.author.to_hash(),
+            self.round.to_field(),
+            self.qc.hash.to_field(),
+            self.qc.last_tail.to_field(),
+            tx_tail,
+        ];
+
+        let mut b = Vec::new();
+        elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize block hash to bytes");
+        Digest(b.try_into().expect("Failed to convert block hash bytes to digest"))
     }
 }
 
@@ -150,9 +157,14 @@ impl Vote {
 
 impl Hash for Vote {
     fn digest(&self) -> Digest {
-        let h1= PoseidonHash::two_to_one(HashOut::from_vec(self.hash.to_vec_field()), self.round.to_hash());
-        let h2= PoseidonHash::two_to_one(h1, HashOut::from_vec(self.tx_tail.to_vec_field()));
-        Digest(h2)
+        let elements = vec![
+            self.hash.to_field(),
+            self.round.to_field(),
+            self.tx_tail.to_field(),
+        ];
+        let mut b = Vec::new();
+        elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize vote hash to bytes");
+        Digest(b.try_into().expect("Failed to convert vote hash bytes to digest"))
     }
 }
 
@@ -217,9 +229,14 @@ impl QC {
 
 impl Hash for QC {
     fn digest(&self) -> Digest {
-        let h1= PoseidonHash::two_to_one(HashOut::from_vec(self.hash.to_vec_field()), self.round.to_hash());
-        let h2= PoseidonHash::two_to_one(h1, HashOut::from_vec(self.last_tail.to_vec_field()));
-        Digest(h2)
+        let elements = vec![
+            self.hash.to_field(),
+            self.round.to_field(),
+            self.last_tail.to_field(),
+        ];
+        let mut b = Vec::new();
+        elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize qc hash to bytes");
+        Digest(b.try_into().expect("Failed to convert qc hash bytes to digest"))
     }
 }
 
@@ -280,8 +297,13 @@ impl Timeout {
 
 impl Hash for Timeout {
     fn digest(&self) -> Digest {
-        let h1= PoseidonHash::two_to_one(self.round.to_hash(), self.high_qc.round.to_hash());
-        Digest(h1)
+        let elements = vec![
+            self.round.to_field(),
+            self.high_qc.round.to_field(),
+        ];
+        let mut b = Vec::new();
+        elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize timeout hash to bytes");
+        Digest(b.try_into().expect("Failed to convert timeout hash bytes to digest"))
     }
 }
 
@@ -316,8 +338,14 @@ impl TC {
 
         // Check the proofs.
         for (author, sig, high_qc_round) in &self.votes {
-            let h1= PoseidonHash::two_to_one(self.round.to_hash(), high_qc_round.to_hash());
-            let digest = Digest(h1);
+            let elements = vec![
+                self.round.to_field(),
+                high_qc_round.to_field(),
+            ];
+            let mut b = Vec::new();
+            elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize tc vote hash to bytes");
+            let digest = Digest(b.try_into().expect("Failed to convert tc vote hash bytes to digest"));
+
             verify_signature(&digest, author, sig);
         }
         Ok(())
@@ -348,3 +376,8 @@ fn verify_signature(digest: &Digest, author: &PublicKey, sig: &Signature) {
 //     let vd = VerifierCircuitData::from_bytes(vd_decoded, &DefaultGateSerializer).unwrap();
 //     vd.verify(ProofWithPublicInputs { proof: proof.into(), public_inputs: digest.to_vec_field() }).expect("proof verification failed");
 // }
+
+#[derive(Debug, Clone)]
+pub enum WebSocketEvent {
+    BroadcastChainUpdate { hash: Vec<u8> },
+}

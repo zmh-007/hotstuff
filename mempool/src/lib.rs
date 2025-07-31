@@ -7,4 +7,4 @@ mod synchronizer;
 mod tx_broadcaster;
 
 pub use crate::config::{Committee, Parameters};
-pub use crate::mempool::{ConsensusMempoolMessage, Mempool, SerializedTransaction, TransactionFields};
+pub use crate::mempool::{ConsensusMempoolMessage, Mempool, SerializedTransaction};

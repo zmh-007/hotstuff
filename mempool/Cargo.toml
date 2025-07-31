@@ -5,7 +5,7 @@ authors = ["Alberto Sonnino <asonnino@fb.com>"]
 edition = "2018"
 
 [dependencies]
-placeholder_project_name_placeholder_zk = { path = "../../monorepo/zk/plonky2" }
+zk = { path = "../../monorepo/zk" }
 l0 = { path = "../../monorepo/l0" }
 tokio = { version = "1.5.0", features = ["sync", "rt", "macros"] }
 serde = { version = "1.0", features = ["derive"] }

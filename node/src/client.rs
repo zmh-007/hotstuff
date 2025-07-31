@@ -5,16 +5,13 @@ use env_logger::Env;
 use futures::future::join_all;
 use futures::sink::SinkExt as _;
 use log::{info, warn};
-use mempool::TransactionFields;
-use placeholder_project_name_placeholder_zk::field::goldilocks_field::GoldilocksField;
-use placeholder_project_name_placeholder_zk::field::types::Field;
-use placeholder_project_name_placeholder_zk::placeholder_project_name_placeholder_patch::{PlaceholderProjectNamePlaceholderField, PlaceholderProjectNamePlaceholderHash, PlaceholderProjectNamePlaceholderProof, PlaceholderProjectNamePlaceholderVerifierOnlyCircuitData};
 use rand::Rng;
+use zk::Fr;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::time::{interval, sleep, Duration, Instant};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
-use l0::Transaction;
+use l0::{Out, Tx};
 
 #[derive(Parser)]
 #[clap(
@@ -107,19 +104,24 @@ impl Client {
             let now = Instant::now();
 
             for x in 0..burst {
-                let tx = Transaction{
-                    proof: PlaceholderProjectNamePlaceholderProof::from([GoldilocksField::ZERO; 16581]),
-                    snap: PlaceholderProjectNamePlaceholderHash::default(),
-                    from: PlaceholderProjectNamePlaceholderVerifierOnlyCircuitData::from([GoldilocksField::ZERO; 68]),
-                    to: PlaceholderProjectNamePlaceholderHash::default(),
-                    nonce: PlaceholderProjectNamePlaceholderField::from(r),
-                    amount: PlaceholderProjectNamePlaceholderField::default(),
-                    gas: PlaceholderProjectNamePlaceholderField::default(),
-                    payload: vec![PlaceholderProjectNamePlaceholderField::default(); 8]};
+                let tx = Tx{
+                    ix: Fr::from(r),
+                    iy: Fr::from(r),
+                    ox: Out {
+                        amount: Fr::from(r),
+                        owner: Fr::from(r),
+                        data: vec![Fr::from(r); self.size / 32],
+                    },
+                    oy: Out {
+                        amount: Fr::from(r),
+                        owner: Fr::from(r),
+                        data: vec![Fr::from(r); self.size / 32],
+                    },
+                };
                 r = r + 1;
                 info!("Sending transaction {}, {}", x, r);
-                let tf = TransactionFields(tx.into());
-                if let Err(e) = transport.send(Bytes::from(bincode::serialize(&tf).unwrap())).await {
+                let tx_bytes: Vec<u8> = tx.into();
+                if let Err(e) = transport.send(Bytes::from(tx_bytes)).await {
                     warn!("Failed to send transaction: {}", e);
                     break 'main;
                 }

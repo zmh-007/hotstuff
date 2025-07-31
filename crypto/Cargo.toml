@@ -6,7 +6,7 @@ edition = "2018"
 publish = false
 
 [dependencies]
-placeholder_project_name_placeholder_zk = { path = "../../monorepo/zk/plonky2" }
+zk = { path = "../../monorepo/zk" }
 blst = { git = "https://github.com/supranational/blst", branch = "master" }
 tokio = { version = "1.5.0", features = ["sync", "rt", "macros"] }
 serde = { version = "1.0", features = ["derive"] }

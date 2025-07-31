@@ -1,82 +1,58 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
-use placeholder_project_name_placeholder_zk::field::goldilocks_field::GoldilocksField;
-use placeholder_project_name_placeholder_zk::field::types::Field;
-use placeholder_project_name_placeholder_zk::hash::poseidon::PoseidonHash;
-use placeholder_project_name_placeholder_zk::plonk::config::{GenericHashOut, Hasher};
-use placeholder_project_name_placeholder_zk::hash::hash_types::HashOut;
 use rand::{RngCore};
+use zk::{deserialize_be_fr, Fr, ToHash};
 use std::fmt;
-use std::convert::TryInto;
 use base64::{Engine as _, engine::general_purpose};
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::oneshot;
-use std::cmp::Ordering;
-use serde::{ser, de, Serialize, Serializer, Deserialize, Deserializer};
+use serde::{ser, de, Serialize, Deserialize};
+use std::array::TryFromSliceError;
+use std::convert::{TryFrom, TryInto};
 
 #[cfg(test)]
 #[path = "tests/crypto_tests.rs"]
 pub mod crypto_tests;
 
 /// Represents a hash digest (32 bytes).
-#[derive(Copy, Hash, PartialEq, Default, Eq, Clone)]
-pub struct Digest(pub HashOut<GoldilocksField>);
+#[derive(Hash, PartialEq, Default, Eq, Clone, Deserialize, Serialize, Ord, PartialOrd)]
+pub struct Digest(pub [u8; 32]);
 
 impl Digest {
     pub fn to_vec(&self) -> Vec<u8> {
-        self.0.to_bytes()
-    }
-
-    pub fn to_vec_field(&self) -> Vec<GoldilocksField> {
-        self.0.elements.to_vec()
+        self.0.to_vec()
     }
 
     pub fn size(&self) -> usize {
-        self.0.elements.len()
+        self.0.len()
+    }
+
+    pub fn to_field(&self) -> Fr {
+        deserialize_be_fr(&self.0[..]).expect("Failed to convert Digest to Fr")
     }
 }
 
 impl fmt::Debug for Digest {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", general_purpose::STANDARD.encode(&self.0.to_bytes()))
+        write!(f, "{}", general_purpose::STANDARD.encode(&self.0))
     }
 }
 
 impl fmt::Display for Digest {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}", general_purpose::STANDARD.encode(&self.0.to_bytes()))
+        write!(f, "{}", general_purpose::STANDARD.encode(&self.0))
     }
 }
 
-impl PartialOrd for Digest {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl AsRef<[u8]> for Digest {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
     }
 }
 
-impl Ord for Digest {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.to_bytes().cmp(&other.0.to_bytes())
-    }
-}
-
-impl Serialize for Digest {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let base64_str = general_purpose::STANDARD.encode(&self.0.to_bytes());
-        serializer.serialize_str(&base64_str)
-    }
-}
-
-impl<'de> Deserialize<'de> for Digest {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let base64_str = String::deserialize(deserializer)?;
-        let bytes = general_purpose::STANDARD.decode(&base64_str).unwrap();
-        Ok(Digest(HashOut::from_bytes(&bytes)))
+impl TryFrom<&[u8]> for Digest {
+    type Error = TryFromSliceError;
+    fn try_from(item: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Digest(item.try_into()?))
     }
 }
 
@@ -102,13 +78,14 @@ impl PublicKey {
         Ok(Self(array))
     }
 
-    pub fn to_hash(&self) -> HashOut<GoldilocksField> {
-        let mut fields = [GoldilocksField::ZERO; 6];
-        for (i, chunk) in self.0.chunks_exact(8).enumerate() {
-            let bytes: [u8; 8] = chunk.try_into().unwrap();
-            fields[i] = GoldilocksField::from_canonical_u64(u64::from_le_bytes(bytes));
-        }
-        PoseidonHash::hash_no_pad(&fields)
+    pub fn to_hash(&self) -> Fr {
+        let mut chunk1 = [0u8; 32];
+        let mut chunk2 = [0u8; 32];
+        chunk1[8..].copy_from_slice(&self.0[..24]);
+        chunk2[8..].copy_from_slice(&self.0[24..]);
+        let fr1 = deserialize_be_fr(&chunk1[..]).expect("Failed to convert PublicKey to Fr");
+        let fr2 = deserialize_be_fr(&chunk2[..]).expect("Failed to convert PublicKey to Fr");
+        (fr1, fr2).hash()
     }
 }
 

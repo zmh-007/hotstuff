@@ -14,13 +14,12 @@ use futures::SinkExt as _;
 use log::info;
 use mempool::ConsensusMempoolMessage;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
-use placeholder_project_name_placeholder_zk::field::goldilocks_field::GoldilocksField;
-use placeholder_project_name_placeholder_zk::field::types::{Field, Field64};
-use placeholder_project_name_placeholder_zk::hash::hash_types::HashOut;
 use serde::{Deserialize, Serialize};
+use zk::Fr;
 use std::error::Error;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use crate::messages::WebSocketEvent;
 
 /// The default channel capacity for each channel of the consensus.
 pub const CHANNEL_CAPACITY: usize = 1_000;
@@ -29,23 +28,12 @@ pub const CHANNEL_CAPACITY: usize = 1_000;
 pub type Round = u64;
 
 pub trait ToField {
-    fn to_field(&self) -> GoldilocksField;
+    fn to_field(&self) -> Fr;
 }
 
 impl ToField for u64 {
-    fn to_field(&self) -> GoldilocksField {
-        assert!(*self <= GoldilocksField::ORDER);
-        GoldilocksField::from_canonical_u64(*self)
-    }
-}
-
-pub trait ToHash {
-    fn to_hash(&self) -> HashOut<GoldilocksField>;
-}
-
-impl ToHash for u64 {
-    fn to_hash(&self) -> HashOut<GoldilocksField> {
-        HashOut::from_vec([self.to_field(), GoldilocksField(0), GoldilocksField(0), GoldilocksField(0)].to_vec())
+    fn to_field(&self) -> Fr {
+        Fr::from(*self)
     }
 }
 
@@ -71,6 +59,7 @@ impl Consensus {
         rx_mempool: Receiver<Digest>,
         tx_mempool: Sender<ConsensusMempoolMessage>,
         tx_commit: Sender<Block>,
+        tx_websocket_event: Option<Sender<WebSocketEvent>>,
     ) {
         // NOTE: This log entry is used to compute performance.
         parameters.log();
@@ -127,6 +116,7 @@ impl Consensus {
             rx_loopback,
             tx_proposer,
             tx_commit,
+            tx_websocket_event,
         );
 
         // Spawn the block proposer.

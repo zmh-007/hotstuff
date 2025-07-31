@@ -14,4 +14,4 @@ mod timer;
 
 pub use crate::config::{Committee, Parameters};
 pub use crate::consensus::Consensus;
-pub use crate::messages::{Block, QC, TC};
+pub use crate::messages::{Block, QC, TC, WebSocketEvent};

@@ -1,5 +1,6 @@
 mod config;
 mod node;
+mod websocket;
 
 use crate::node::Node;
 use clap::{Parser, Subcommand};
@@ -46,6 +47,9 @@ enum Command {
         /// The path where to create the data store.
         #[clap(short, long, value_parser, value_name = "PATH")]
         store: String,
+        /// WebSocket server address (optional).
+        #[clap(short, long, value_parser, value_name = "ADDR")]
+        websocket: Option<String>,
     },
     /// Deploy a local testbed with the specified number of nodes.
     Deploy {
@@ -81,7 +85,8 @@ async fn main() {
             committee,
             parameters,
             store,
-        } => match Node::new(&committee, &keys, &store, parameters).await {
+            websocket,
+        } => match Node::new(&committee, &keys, &store, parameters, websocket).await {
             Ok(mut node) => {
                 tokio::spawn(async move {
                     node.analyze_block().await;

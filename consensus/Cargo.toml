@@ -6,7 +6,7 @@ edition = "2018"
 publish = false
 
 [dependencies]
-placeholder_project_name_placeholder_zk = { path = "../../monorepo/zk/plonky2" }
+zk = { path = "../../monorepo/zk" }
 l0 = { path = "../../monorepo/l0" }
 blst = { git = "https://github.com/supranational/blst", branch = "master", features = ["serde", "serde-secret"] }
 thiserror = "1.0.21"
@@ -20,6 +20,10 @@ futures = "0.3.8"
 async-recursion = "1.0.0"
 base64 = "0.21"
 async-trait = "0.1.50"
+tokio-tungstenite = "0.20"
+futures-util = "0.3"
+uuid = { version = "1.0", features = ["v4"] }
+serde_json = "1.0"
 
 store = { path = "../store" }
 crypto = { path = "../crypto" }

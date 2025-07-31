@@ -1,10 +1,12 @@
 use std::convert::TryFrom;
+use std::convert::TryInto;
 use crypto::Digest;
 use store::Store;
-use bincode::deserialize;
 use tokio::sync::mpsc::{Receiver, Sender};
-use crate::mempool::{SerializedTransaction, TransactionFields};
-use l0::Transaction;
+use zk::ToHash;
+use zk::FrSerialization;
+use crate::mempool::{SerializedTransaction};
+use l0::Tx;
 
 pub struct Processor;
 
@@ -19,15 +21,15 @@ impl Processor {
     ) {
         tokio::spawn(async move {
             while let Some(tx_bytes) = rx_transaction.recv().await {
-                let tf: TransactionFields = deserialize(&tx_bytes).unwrap();
-                let tx = Transaction::try_from(tf.0).unwrap();
+                let tx = Tx::try_from(&tx_bytes[..]).expect("Failed to deserialize transaction from bytes");
                 // Hash the transaction.
-                let digest = Digest(tx.hash().into());
+                let mut b = Vec::new();
+                tx.hash().serialize_be_compressed(&mut b).expect("Failed to serialize transaction hash to bytes");
 
                 // Store the transaction.
-                store.write(digest.to_vec(), tx_bytes).await;
+                store.write(b.clone(), tx_bytes).await;
 
-                tx_digest.send(digest).await.expect("Failed to send digest");
+                tx_digest.send(Digest(b.try_into().expect("Failed to convert transaction hash bytes to digest"))).await.expect("Failed to send digest");
             }
         });
     }

@@ -93,12 +93,16 @@ class LocalBench:
             # Run the nodes.
             dbs = [PathMaker.db_path(i) for i in range(nodes)]
             node_logs = [PathMaker.node_log_file(i) for i in range(nodes)]
-            for key_file, db, log_file in zip(key_files, dbs, node_logs):
+            # WebSocket
+            WS_BASE_PORT = 10000
+            for i, (key_file, db, log_file) in enumerate(zip(key_files, dbs, node_logs)):
+                ws_addr = f"127.0.0.1:{WS_BASE_PORT + i}"
                 cmd = CommandMaker.run_node(
                     key_file,
                     PathMaker.committee_file(),
                     db,
                     PathMaker.parameters_file(),
+                    websocket=ws_addr,
                     debug=debug
                 )
                 self._background_run(cmd, log_file)
