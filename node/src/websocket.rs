@@ -12,16 +12,16 @@ use tokio_tungstenite::{
 };
 use consensus::{Block, FullBlock, WebSocketEvent};
 use futures::{SinkExt, StreamExt};
-
+use hex_str::HexString;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message {
     SubscribeChainUpdate,
     UnsubscribeChainUpdate,
-    ChainUpdate(Vec<u8>),
-    SendTransactions(Vec<Vec<u8>>),
-    RequestBlocks(Vec<Vec<u8>>),
-    Blocks(Vec<Vec<u8>>),
+    ChainUpdate(HexString),
+    SendTransactions(Vec<HexString>),
+    RequestBlocks(Vec<HexString>),
+    SyncBlocks(Vec<HexString>),
 }
 
 #[derive(Debug)]
@@ -77,7 +77,7 @@ pub enum ServerMessage {
     },
     SendBlocks {
         client_id: String,
-        blocks: Vec<Vec<u8>>,
+        blocks: Vec<HexString>,
     },
 }
 
@@ -278,7 +278,7 @@ impl WebSocketServer {
                 ServerMessage::SendBlocks { client_id, blocks } => {
                     let clients_guard = clients.read().await;
                     if let Some(client) = clients_guard.get(&client_id) {
-                        let response_msg = Message::Blocks(blocks);
+                        let response_msg = Message::SyncBlocks(blocks);
                         if let Err(e) = client.sender.send(response_msg) {
                             error!("Failed to send Blocks to client {}: {}", client_id, e);
                         }
@@ -314,8 +314,8 @@ impl WebSocketServer {
             
             Message::SendTransactions(transactions) => {
                 debug!("Received {} transactions from client {}", transactions.len(), client_id);
-                for tx_bytes in transactions {
-                    let serialized_transaction: SerializedTransaction = tx_bytes;
+                for tx_hex in transactions {
+                    let serialized_transaction: SerializedTransaction = tx_hex.into();
                     if let Err(e) = mempool_tx.send(serialized_transaction).await {
                         error!("Failed to send transaction to mempool: {}", e);
                     }
@@ -347,7 +347,7 @@ impl WebSocketServer {
                                 next: block.next.clone(),
                                 signature: block.signature.clone(),
                             };
-                            blocks.push(bincode::serialize(&full_block).expect("Failed to serialize full block"));
+                            blocks.push(HexString::new(bincode::serialize(&full_block).expect("Failed to serialize full block")));
                         } else {
                             error!("Failed to deserialize block data for hash: {:?}", hash);
                         }
@@ -365,7 +365,7 @@ impl WebSocketServer {
                 });
             }
             
-            Message::Blocks(_) => {
+            Message::SyncBlocks(_) => {
             }
             
             Message::ChainUpdate(_) => {
@@ -422,7 +422,7 @@ impl WebSocketServer {
             match event {
                 WebSocketEvent::BroadcastChainUpdate { hash } => {
                     let clients = clients.read().await;
-                    let message = Message::ChainUpdate(hash);
+                    let message = Message::ChainUpdate(hash.into());
                     for (client_id, client) in clients.iter() {
                         if client.subscribed {
                             if let Err(e) = client.sender.send(message.clone()) {
