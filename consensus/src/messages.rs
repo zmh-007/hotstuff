@@ -105,6 +105,9 @@ impl Hash for Block {
             self.round.to_field(),
             self.qc.hash.to_field(),
             self.qc.last_tail.to_field(),
+            deserialize_be_fr(&self.txg[..]).expect("Failed to deserialize txg to Fr"),
+            deserialize_be_fr(&self.next.0[..]).expect("Failed to deserialize next1 to Fr"),
+            deserialize_be_fr(&self.next.1[..]).expect("Failed to deserialize next2 to Fr"),
             tx_tail,
         ];
 

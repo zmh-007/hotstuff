@@ -62,8 +62,8 @@ class LocalBench:
             keys = []
             key_files = [PathMaker.key_file(i) for i in range(nodes)]
             for filename in key_files:
-                cmd = CommandMaker.generate_key(filename).split()
-                subprocess.run(cmd, check=True)
+                #cmd = CommandMaker.generate_key(filename).split()
+                #subprocess.run(cmd, check=True)
                 keys += [Key.from_file(filename)]
 
             names = [x.name for x in keys]
