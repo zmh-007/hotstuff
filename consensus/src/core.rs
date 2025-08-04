@@ -87,7 +87,7 @@ impl Core {
     async fn store_block(&mut self, block: &Block) {
         let key = block.digest().to_vec();
         let value = bincode::serialize(block).expect("Failed to serialize block");
-        self.store.write(key, value).await;
+        self.store.write_block(key, value).await;
     }
 
     fn increase_last_voted_round(&mut self, target: Round) {

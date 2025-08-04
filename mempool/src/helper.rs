@@ -51,7 +51,7 @@ impl Helper {
 
             // Reply to the request (the best we can).
             for digest in digests {
-                match self.store.read(digest.to_vec()).await {
+                match self.store.read_tx(digest.to_vec()).await {
                     Ok(Some(data)) => {
                         let message = MempoolMessage::Transaction(data);
                         let serialized = bincode::serialize(&message).expect("Failed to serialize our stored transaction");

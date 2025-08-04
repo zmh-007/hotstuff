@@ -39,7 +39,7 @@ impl MempoolDriver {
     pub async fn verify(&mut self, block: Block) -> ConsensusResult<bool> {
         let mut missing = Vec::new();
         for x in &block.payload {
-            if self.store.read(x.to_vec()).await?.is_none() {
+            if self.store.read_tx(x.to_vec()).await?.is_none() {
                 missing.push(x.clone());
             }
         }
@@ -113,7 +113,7 @@ impl PayloadWaiter {
     ) -> ConsensusResult<Option<Box<Block>>> {
         let waiting: Vec<_> = missing
             .iter_mut()
-            .map(|(x, y)| y.notify_read(x.to_vec()))
+            .map(|(x, y)| y.notify_read_block(x.to_vec()))
             .collect();
         tokio::select! {
             result = try_join_all(waiting) => {

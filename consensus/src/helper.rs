@@ -49,7 +49,7 @@ impl Helper {
             // Reply to the request (if we can).
             if let Some(bytes) = self
                 .store
-                .read(digest.to_vec())
+                .read_block(digest.to_vec())
                 .await
                 .expect("Failed to read from storage")
             {

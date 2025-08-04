@@ -378,7 +378,7 @@ impl WebSocketServer {
         store: &mut Store,
         hash: &Vec<u8>,
     ) -> Option<Vec<u8>> {
-        match store.read(hash.to_vec()).await {
+        match store.read_block(hash.to_vec()).await {
             Ok(Some(data)) => {
                 debug!("Successfully retrieved block data for hash: {:?}", hash);
                 Some(data)
@@ -398,7 +398,7 @@ impl WebSocketServer {
         store: &mut Store,
         hash: &Vec<u8>,
     ) -> Option<Vec<u8>> {
-        match store.read(hash.to_vec()).await {
+        match store.read_tx(hash.to_vec()).await {
             Ok(Some(data)) => {
                 debug!("Successfully retrieved tx data for hash: {:?}", hash);
                 Some(data)

@@ -108,7 +108,7 @@ impl Synchronizer {
     }
 
     async fn waiter(mut store: Store, wait_on: Digest, deliver: Block) -> ConsensusResult<Block> {
-        let _ = store.notify_read(wait_on.to_vec()).await?;
+        let _ = store.notify_read_block(wait_on.to_vec()).await?;
         Ok(deliver)
     }
 
@@ -117,7 +117,7 @@ impl Synchronizer {
             return Ok(Some(Block::genesis()));
         }
         let parent = block.parent();
-        match self.store.read(parent.to_vec()).await? {
+        match self.store.read_block(parent.to_vec()).await? {
             Some(bytes) => Ok(Some(bincode::deserialize(&bytes)?)),
             None => {
                 if let Err(e) = self.inner_channel.send(block.clone()).await {

@@ -27,7 +27,7 @@ impl Processor {
                 tx.hash().serialize_be_compressed(&mut b).expect("Failed to serialize transaction hash to bytes");
 
                 // Store the transaction.
-                store.write(b.clone(), tx_bytes).await;
+                store.write_tx(b.clone(), tx_bytes).await;
 
                 tx_digest.send(Digest(b.try_into().expect("Failed to convert transaction hash bytes to digest"))).await.expect("Failed to send digest");
             }

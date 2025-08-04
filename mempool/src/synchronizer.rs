@@ -80,7 +80,7 @@ impl Synchronizer {
         mut handler: Receiver<()>,
     ) -> Result<Option<Digest>, StoreError> {
         tokio::select! {
-            result = store.notify_read(missing.to_vec()) => {
+            result = store.notify_read_tx(missing.to_vec()) => {
                 result.map(|_| Some(deliver))
             }
             _ = handler.recv() => Ok(None),
