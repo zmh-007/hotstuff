@@ -4,6 +4,7 @@ use crate::error::{ConsensusError, ConsensusResult};
 use blst::min_pk::AggregatePublicKey;
 use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
 use l0::{Out, Tx};
+use log::info;
 use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -78,6 +79,7 @@ impl Block {
         };
         block.txg = txg.into(); // Placeholder for txg
         block.next = ([1u8; 32].to_vec(), [1u8; 32].to_vec()); // Placeholder for next block
+        info!("Genesis block: {:?}", block.digest());
         block
     }
 
