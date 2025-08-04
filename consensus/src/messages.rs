@@ -9,7 +9,7 @@ use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fmt;
-use zk::{deserialize_be_fr, Fr, FrSerialization, ToHash, Vk};
+use zk::{Fr, FrSerialization, ToHash, Vk};
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct FullBlock {
@@ -88,7 +88,7 @@ impl Block {
     }
 
     pub fn tx_tail(&self) -> Digest {
-        let tx_tail = self.payload.iter().map(|v| -> Fr {deserialize_be_fr(&v.0[..]).expect("Failed to deserialize tx hash to Fr")}).hash();
+        let tx_tail = self.payload.iter().map(|v| {Fr::deserialize_be_compressed(&v.0[..]).expect("Failed to deserialize tx hash to Fr")}).hash();
         let mut b = Vec::new();
         tx_tail.serialize_be_compressed(&mut b).expect("Failed to serialize transaction tail hash to bytes");
         Digest(b.try_into().expect("Failed to convert transaction tail hash bytes to digest"))
@@ -120,15 +120,15 @@ impl Block {
 
 impl Hash for Block {
     fn digest(&self) -> Digest {
-        let tx_tail = self.payload.iter().map(|v| -> Fr {deserialize_be_fr(&v.0[..]).expect("Failed to deserialize tx hash to Fr")}).hash();
+        let tx_tail = self.payload.iter().map(|v| {Fr::deserialize_be_compressed(&v.0[..]).expect("Failed to deserialize tx hash to Fr")}).hash();
         let elements = vec![
             self.author.to_hash(),
             self.round.to_field(),
             self.qc.hash.to_field(),
             self.qc.last_tail.to_field(),
-            deserialize_be_fr(&self.txg[..]).expect("Failed to deserialize txg to Fr"),
-            deserialize_be_fr(&self.next.0[..]).expect("Failed to deserialize next1 to Fr"),
-            deserialize_be_fr(&self.next.1[..]).expect("Failed to deserialize next2 to Fr"),
+            Fr::deserialize_be_compressed(&self.txg[..]).expect("Failed to deserialize txg to Fr"),
+            Fr::deserialize_be_compressed(&self.next.0[..]).expect("Failed to deserialize next1 to Fr"),
+            Fr::deserialize_be_compressed(&self.next.1[..]).expect("Failed to deserialize next2 to Fr"),
             tx_tail,
         ];
 

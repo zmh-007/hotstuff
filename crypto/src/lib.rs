@@ -1,6 +1,6 @@
 // Copyright(C) Facebook, Inc. and its affiliates.
 use rand::{RngCore};
-use zk::{deserialize_be_fr, Fr, ToHash};
+use zk::{Fr, FrSerialization, ToHash};
 use std::fmt;
 use base64::{Engine as _, engine::general_purpose};
 use tokio::sync::mpsc::{channel, Sender};
@@ -27,7 +27,7 @@ impl Digest {
     }
 
     pub fn to_field(&self) -> Fr {
-        deserialize_be_fr(&self.0[..]).expect("Failed to convert Digest to Fr")
+        Fr::deserialize_be_compressed(&self.0[..]).expect("Failed to convert Digest to Fr")
     }
 }
 
@@ -83,8 +83,8 @@ impl PublicKey {
         let mut chunk2 = [0u8; 32];
         chunk1[8..].copy_from_slice(&self.0[..24]);
         chunk2[8..].copy_from_slice(&self.0[24..]);
-        let fr1 = deserialize_be_fr(&chunk1[..]).expect("Failed to convert PublicKey to Fr");
-        let fr2 = deserialize_be_fr(&chunk2[..]).expect("Failed to convert PublicKey to Fr");
+        let fr1 = Fr::deserialize_be_compressed(&chunk1[..]).expect("Failed to convert PublicKey to Fr");
+        let fr2 = Fr::deserialize_be_compressed(&chunk2[..]).expect("Failed to convert PublicKey to Fr");
         (fr1, fr2).hash()
     }
 }
