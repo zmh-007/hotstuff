@@ -121,12 +121,13 @@ impl Block {
 impl Hash for Block {
     fn digest(&self) -> Digest {
         let tx_tail = self.payload.iter().map(|v| {Fr::deserialize_be_compressed(&v.0[..]).expect("Failed to deserialize tx hash to Fr")}).hash();
+        let txg: Tx = self.txg[..].try_into().expect("Failed to convert txg bytes to Tx");
         let elements = vec![
             self.author.to_hash(),
             self.round.to_field(),
             self.qc.hash.to_field(),
             self.qc.last_tail.to_field(),
-            Fr::deserialize_be_compressed(&self.txg[..]).expect("Failed to deserialize txg to Fr"),
+            txg.hash(),
             Fr::deserialize_be_compressed(&self.next.0[..]).expect("Failed to deserialize next1 to Fr"),
             Fr::deserialize_be_compressed(&self.next.1[..]).expect("Failed to deserialize next2 to Fr"),
             tx_tail,
