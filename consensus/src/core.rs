@@ -46,7 +46,7 @@ impl Core {
         name: PublicKey,
         committee: Committee,
         signature_service: SignatureService,
-        store: Store,
+        mut store: Store,
         leader_elector: LeaderElector,
         mempool_driver: MempoolDriver,
         synchronizer: Synchronizer,
@@ -57,7 +57,15 @@ impl Core {
         tx_commit: Sender<Block>,
         tx_websocket_event: Option<Sender<WebSocketEvent>>,
     ) {
-        tokio::spawn(async move {
+       tokio::spawn(async move {
+            let last_round = store.read_round().await.unwrap().unwrap_or_default();
+            let last_voted_round = store.read_last_voted_round().await.unwrap().unwrap_or_default();
+            let last_committed_round = store.read_last_committed_round().await.unwrap().unwrap_or_default();
+            let qc = store.read_qc().await.unwrap();
+            let high_qc = match qc {
+                Some(qc) => bincode::deserialize(&qc).expect("Failed to deserialize QC from store"),
+                None => QC::default(),
+            };
             Self {
                 name,
                 committee: committee.clone(),
@@ -71,10 +79,10 @@ impl Core {
                 tx_proposer,
                 tx_commit,
                 tx_websocket_event,
-                round: 1,
-                last_voted_round: 0,
-                last_committed_round: 0,
-                high_qc: QC::genesis(),
+                round: last_round,
+                last_voted_round: last_voted_round,
+                last_committed_round: last_committed_round,
+                high_qc,
                 timer: Timer::new(timeout_delay),
                 aggregator: Aggregator::new(committee),
                 network: SimpleSender::new(),
@@ -90,8 +98,10 @@ impl Core {
         self.store.write_block(key, value).await;
     }
 
-    fn increase_last_voted_round(&mut self, target: Round) {
-        self.last_voted_round = max(self.last_voted_round, target);
+    async fn increase_last_voted_round(&mut self, target: Round) {
+        let value = max(self.last_voted_round, target);
+        self.last_voted_round = value;
+        self.store.write_last_voted_round(value).await;
     }
 
     async fn make_vote(&mut self, block: &Block) -> Option<Vote> {
@@ -108,7 +118,7 @@ impl Core {
         }
 
         // Ensure we won't vote for contradicting blocks.
-        self.increase_last_voted_round(block.round);
+        self.increase_last_voted_round(block.round).await;
         // TODO [issue #15]: Write to storage preferred_round and last_voted_round.
         Some(Vote::new(block, self.name.clone(), self.signature_service.clone()).await)
     }
@@ -134,6 +144,7 @@ impl Core {
 
         // Save the last committed block.
         self.last_committed_round = block.round;
+        self.store.write_last_committed_round(self.last_committed_round).await;
 
         // Send all the newly committed blocks to the node's application layer.
         while let Some(block) = to_commit.pop_back() {
@@ -172,9 +183,10 @@ impl Core {
         Ok(())
     }
 
-    fn update_high_qc(&mut self, qc: &QC) {
+    async fn update_high_qc(&mut self, qc: &QC) {
         if qc.round > self.high_qc.round {
             self.high_qc = qc.clone();
+            self.store.write_qc(bincode::serialize(qc).expect("update qc, serialize qc error")).await;
         }
     }
 
@@ -182,7 +194,7 @@ impl Core {
         warn!("Timeout reached for round {}", self.round);
 
         // Increase the last voted round.
-        self.increase_last_voted_round(self.round);
+        self.increase_last_voted_round(self.round).await;
 
         // Make a timeout message.
         let timeout = Timeout::new(
@@ -289,6 +301,7 @@ impl Core {
         // Reset the timer and advance round.
         self.timer.reset();
         self.round = round + 1;
+        self.store.write_round(self.round).await;
         debug!("Moved to round {}", self.round);
 
         // Cleanup the vote aggregator.
@@ -319,7 +332,7 @@ impl Core {
 
     async fn process_qc(&mut self, qc: &QC) {
         self.advance_round(qc.round).await;
-        self.update_high_qc(qc);
+        self.update_high_qc(qc).await;
     }
 
     #[async_recursion]

@@ -12,13 +12,27 @@ type Value = Vec<u8>;
 
 const BLOCKS_CF: &str = "blocks";
 const TRANSACTIONS_CF: &str = "transactions";
+const CONSENSUS_CF: &str = "consensus";
+
+const ROUND_PREFIX: &[u8] = b"round";
+const LAST_VOTED_ROUND_PREFIX: &[u8] = b"last_voted_round";
+const LAST_COMMITTED_ROUND_PREFIX: &[u8] = b"last_committed_round";
+const QC_PREFIX: &[u8] = b"qc";
 
 pub enum StoreCommand {
     WriteBlock(Key, Value),
     WriteTransaction(Key, Value),
+    WriteRound(u64),
+    WriteLastVotedRound(u64),
+    WriteLastCommittedRound(u64),
+    WriteQC(Value),
     
     ReadBlock(Key, oneshot::Sender<StoreResult<Option<Value>>>),
     ReadTransaction(Key, oneshot::Sender<StoreResult<Option<Value>>>),
+    ReadRound(oneshot::Sender<StoreResult<Option<Value>>>),
+    ReadLastVotedRound(oneshot::Sender<StoreResult<Option<Value>>>),
+    ReadLastCommittedRound(oneshot::Sender<StoreResult<Option<Value>>>),
+    ReadQC(oneshot::Sender<StoreResult<Option<Value>>>),
     
     NotifyReadBlock(Key, oneshot::Sender<StoreResult<Value>>),
     NotifyReadTransaction(Key, oneshot::Sender<StoreResult<Value>>),
@@ -37,6 +51,7 @@ impl Store {
         let cfs = vec![
             ColumnFamilyDescriptor::new(BLOCKS_CF, Options::default()),
             ColumnFamilyDescriptor::new(TRANSACTIONS_CF, Options::default()),
+            ColumnFamilyDescriptor::new(CONSENSUS_CF, Options::default()),
         ];
         let db = Arc::new(DB::open_cf_descriptors(&opts, path, cfs)?);
         let (tx, rx) = channel(100);
@@ -54,6 +69,7 @@ impl Store {
         while let Some(command) = rx.recv().await {
             let blocks_cf = db.cf_handle(BLOCKS_CF).unwrap();
             let transactions_cf = db.cf_handle(TRANSACTIONS_CF).unwrap();
+            let consensus_cf = db.cf_handle(CONSENSUS_CF).unwrap();
 
             match command {
                 StoreCommand::WriteBlock(key, value) => {
@@ -72,12 +88,43 @@ impl Store {
                         }
                     }
                 }
+                StoreCommand::WriteRound(round) => {
+                    let value = round.to_be_bytes().to_vec();
+                    let _ = db.put_cf(&consensus_cf, ROUND_PREFIX, &value);
+                }
+                StoreCommand::WriteLastVotedRound(round) => {
+                    let value = round.to_be_bytes().to_vec();
+                    let _ = db.put_cf(&consensus_cf, LAST_VOTED_ROUND_PREFIX, &value);
+                }
+                StoreCommand::WriteLastCommittedRound(round) => {
+                    let value = round.to_be_bytes().to_vec();
+                    let _ = db.put_cf(&consensus_cf, LAST_COMMITTED_ROUND_PREFIX, &value);
+                }
+                StoreCommand::WriteQC(value) => {
+                    let _ = db.put_cf(&consensus_cf, QC_PREFIX, &value);
+                }
                 StoreCommand::ReadBlock(key, sender) => {
                     let response = db.get_cf(&blocks_cf, &key);
                     let _ = sender.send(response);
                 }
                 StoreCommand::ReadTransaction(key, sender) => {
                     let response = db.get_cf(&transactions_cf, &key);
+                    let _ = sender.send(response);
+                }
+                StoreCommand::ReadRound(sender) => {
+                    let response = db.get_cf(&consensus_cf, ROUND_PREFIX);
+                    let _ = sender.send(response);
+                }
+                StoreCommand::ReadLastVotedRound(sender) => {
+                    let response = db.get_cf(&consensus_cf, LAST_VOTED_ROUND_PREFIX);
+                    let _ = sender.send(response);
+                }
+                StoreCommand::ReadLastCommittedRound(sender) => {
+                    let response = db.get_cf(&consensus_cf, LAST_COMMITTED_ROUND_PREFIX);
+                    let _ = sender.send(response);
+                }
+                StoreCommand::ReadQC(sender) => {
+                    let response = db.get_cf(&consensus_cf, QC_PREFIX);
                     let _ = sender.send(response);
                 }
                 StoreCommand::NotifyReadBlock(key, sender) => {
@@ -113,13 +160,31 @@ impl Store {
             panic!("Failed to send Write Block command to store: {}", e);
         }
     }
-
     pub async fn write_tx(&mut self, key: Key, value: Value) {
         if let Err(e) = self.channel.send(StoreCommand::WriteTransaction(key, value)).await {
             panic!("Failed to send Write Transaction command to store: {}", e);
         }
     }
-
+    pub async fn write_round(&mut self, value: u64) {
+        if let Err(e) = self.channel.send(StoreCommand::WriteRound(value)).await {
+            panic!("Failed to send Write Round command to store: {}", e);
+        }
+    }
+    pub async fn write_last_voted_round(&mut self, value: u64) {
+        if let Err(e) = self.channel.send(StoreCommand::WriteLastVotedRound(value)).await {
+            panic!("Failed to send Write LastVotedRound command to store: {}", e);
+        }
+    }
+    pub async fn write_last_committed_round(&mut self, value: u64) {
+        if let Err(e) = self.channel.send(StoreCommand::WriteLastCommittedRound(value)).await {
+            panic!("Failed to send Write LastCommittedRound command to store: {}", e);
+        }
+    }
+    pub async fn write_qc(&mut self, value: Value) {
+        if let Err(e) = self.channel.send(StoreCommand::WriteQC(value)).await {
+            panic!("Failed to send Write QC command to store: {}", e);
+        }
+    }
     pub async fn read_block(&mut self, key: Key) -> StoreResult<Option<Value>> {
         let (sender, receiver) = oneshot::channel();
         if let Err(e) = self.channel.send(StoreCommand::ReadBlock(key, sender)).await {
@@ -129,7 +194,6 @@ impl Store {
             .await
             .expect("Failed to receive reply to Read Block command from store")
     }
-
     pub async fn notify_read_block(&mut self, key: Key) -> StoreResult<Value> {
         let (sender, receiver) = oneshot::channel();
         if let Err(e) = self
@@ -143,7 +207,6 @@ impl Store {
             .await
             .expect("Failed to receive reply to NotifyReadBlock command from store")
     }
-
     pub async fn read_tx(&mut self, key: Key) -> StoreResult<Option<Value>> {
         let (sender, receiver) = oneshot::channel();
         if let Err(e) = self.channel.send(StoreCommand::ReadTransaction(key, sender)).await {
@@ -153,7 +216,6 @@ impl Store {
             .await
             .expect("Failed to receive reply to Read Transaction command from store")
     }
-
     pub async fn notify_read_tx(&mut self, key: Key) -> StoreResult<Value> {
         let (sender, receiver) = oneshot::channel();
         if let Err(e) = self
@@ -166,5 +228,56 @@ impl Store {
         receiver
             .await
             .expect("Failed to receive reply to NotifyReadTransaction command from store")
+    }
+    pub async fn read_round(&mut self) -> StoreResult<Option<u64>> {
+        let (sender, receiver) = oneshot::channel();
+        if let Err(e) = self.channel.send(StoreCommand::ReadRound(sender)).await {
+            panic!("Failed to send Read Round command to store: {}", e);
+        }
+        receiver
+            .await
+            .expect("Failed to receive reply to Read Round command from store")
+            .map(|opt| opt.map(|bytes| {
+            let mut buf = [0u8; 8];
+            buf.copy_from_slice(&bytes);
+            u64::from_be_bytes(buf)
+        }))
+    }
+    pub async fn read_last_voted_round(&mut self) -> StoreResult<Option<u64>> {
+        let (sender, receiver) = oneshot::channel();
+        if let Err(e) = self.channel.send(StoreCommand::ReadLastVotedRound(sender)).await {
+            panic!("Failed to send Read LastVotedRound command to store: {}", e);
+        }
+        receiver
+            .await
+            .expect("Failed to receive reply to Read Round command from store")
+            .map(|opt| opt.map(|bytes| {
+            let mut buf = [0u8; 8];
+            buf.copy_from_slice(&bytes);
+            u64::from_be_bytes(buf)
+        }))
+    }
+    pub async fn read_last_committed_round(&mut self) -> StoreResult<Option<u64>> {
+        let (sender, receiver) = oneshot::channel();
+        if let Err(e) = self.channel.send(StoreCommand::ReadLastCommittedRound(sender)).await {
+            panic!("Failed to send Read LastCommittedRound command to store: {}", e);
+        }
+        receiver
+            .await
+            .expect("Failed to receive reply to Read Round command from store")
+            .map(|opt| opt.map(|bytes| {
+            let mut buf = [0u8; 8];
+            buf.copy_from_slice(&bytes);
+            u64::from_be_bytes(buf)
+        }))
+    }
+    pub async fn read_qc(&mut self) -> StoreResult<Option<Value>> {
+        let (sender, receiver) = oneshot::channel();
+        if let Err(e) = self.channel.send(StoreCommand::ReadQC(sender)).await {
+            panic!("Failed to send Read QC command to store: {}", e);
+        }
+        receiver
+            .await
+            .expect("Failed to receive reply to Read QC command from store")
     }
 }
