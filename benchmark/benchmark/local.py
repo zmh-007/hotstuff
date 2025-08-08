@@ -76,19 +76,19 @@ class LocalBench:
             nodes = nodes - self.faults
 
             # Run the clients (they will wait for the nodes to be ready).
-            addresses = committee.front
-            rate_share = ceil(rate / nodes)
-            timeout = self.node_parameters.timeout_delay
-            client_logs = [PathMaker.client_log_file(i) for i in range(nodes)]
-            for addr, log_file in zip(addresses, client_logs):
-                cmd = CommandMaker.run_client(
-                    addr,
-                    self.tx_size,
-                    rate_share,
-                    timeout,
-                    #nodes=addresses
-                )
-                self._background_run(cmd, log_file)
+            # addresses = committee.front
+            # rate_share = ceil(rate / nodes)
+            # timeout = self.node_parameters.timeout_delay
+            # client_logs = [PathMaker.client_log_file(i) for i in range(nodes)]
+            # for addr, log_file in zip(addresses, client_logs):
+            #     cmd = CommandMaker.run_client(
+            #         addr,
+            #         self.tx_size,
+            #         rate_share,
+            #         timeout,
+            #         #nodes=addresses
+            #     )
+            #     self._background_run(cmd, log_file)
 
             # Run the nodes.
             dbs = [PathMaker.db_path(i) for i in range(nodes)]
@@ -113,8 +113,8 @@ class LocalBench:
 
             # Wait for all transactions to be processed.
             Print.info(f'Running benchmark ({self.duration} sec)...')
-            sleep(self.duration)
-            self._kill_nodes()
+            # sleep(self.duration)
+            # self._kill_nodes()
 
             # Parse logs and return the parser.
             # Print.info('Parsing logs...')
