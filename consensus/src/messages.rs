@@ -3,13 +3,12 @@ use crate::consensus::{Round, ToField};
 use crate::error::{ConsensusError, ConsensusResult};
 use blst::min_pk::AggregatePublicKey;
 use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
-use l0::{Out, Tx};
-use log::info;
+use l0::Tx;
 use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fmt;
-use zk::{Fr, FrSerialization, ToHash, Vk};
+use zk::{Fr, FrSerialization, ToHash};
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct FullBlock {

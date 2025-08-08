@@ -161,19 +161,15 @@ impl Core {
             
             // push block to ws
             if let Some(ref tx_ws_event) = self.tx_websocket_event {
-                if block.payload.len() > 0 {
-                    let hash = block.digest().to_vec();
-                    let broadcast_event = WebSocketEvent::BroadcastChainUpdate {
-                        hash: hash.clone()
-                    };
-                    if let Err(e) = tx_ws_event.send(broadcast_event).await {
-                        error!("Failed to send broadcast event to WebSocket: {}", e);
-                    } else {
-                        debug!("Sent broadcast chain update event for hash: {:?}", hash);
-                    }
+                let hash = block.digest().to_vec();
+                let broadcast_event = WebSocketEvent::BroadcastChainUpdate {
+                    hash: hash.clone()
+                };
+                if let Err(e) = tx_ws_event.send(broadcast_event).await {
+                    error!("Failed to send broadcast event to WebSocket: {}", e);
+                } else {
+                    debug!("Sent broadcast chain update event for hash: {:?}", hash);
                 }
-            } else {
-                    debug!("Skipped empty block storage and broadcast (tx_num: 0)");
             }
             
             if let Err(e) = self.tx_commit.send(block).await {
