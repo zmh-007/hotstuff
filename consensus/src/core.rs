@@ -58,7 +58,7 @@ impl Core {
         tx_websocket_event: Option<Sender<WebSocketEvent>>,
     ) {
        tokio::spawn(async move {
-            let last_round = store.read_round().await.unwrap().unwrap_or_default();
+            let last_round = store.read_round().await.unwrap().unwrap_or_else(|| 1);
             let last_voted_round = store.read_last_voted_round().await.unwrap().unwrap_or_default();
             let last_committed_round = store.read_last_committed_round().await.unwrap().unwrap_or_default();
             let qc = store.read_qc().await.unwrap();
