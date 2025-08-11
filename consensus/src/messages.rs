@@ -115,23 +115,7 @@ impl Block {
 
 impl Hash for Block {
     fn digest(&self) -> Digest {
-        let fr_iter = std::iter::once(
-        Fr::deserialize_be_compressed(&self.qc.last_tail.0[..])
-            .expect("Failed to deserialize last_tail")
-        )
-        .chain(
-            self.payload.iter().map(|v| {
-                Fr::deserialize_be_compressed(&v.0[..])
-                    .expect("Failed to deserialize tx hash to Fr")
-            })
-        )
-        .chain(
-            std::iter::once(
-                Fr::deserialize_be_compressed(&self.txg[..])
-                    .expect("Failed to deserialize txg to Fr")
-            )
-        );
-        let tx_tail = fr_iter.hash();
+        let tx_tail = self.tx_tail();
         let elements = vec![
             self.author.to_hash(),
             self.round.to_field(),
@@ -139,7 +123,7 @@ impl Hash for Block {
             self.qc.last_tail.to_field(),
             Fr::deserialize_be_compressed(&self.next.0[..]).expect("Failed to deserialize next1 to Fr"),
             Fr::deserialize_be_compressed(&self.next.1[..]).expect("Failed to deserialize next2 to Fr"),
-            tx_tail,
+            Fr::deserialize_be_compressed(&tx_tail.0[..]).expect("Failed to deserialize tx_tail to Fr"),
         ];
 
         let mut b = Vec::new();
