@@ -10,6 +10,7 @@ type StoreResult<T> = Result<T, StoreError>;
 type Key = Vec<u8>;
 type Value = Vec<u8>;
 
+const BLOCKS_INDEX_CF: &str = "blocks_index";
 const BLOCKS_CF: &str = "blocks";
 const TRANSACTIONS_CF: &str = "transactions";
 const CONSENSUS_CF: &str = "consensus";
@@ -20,6 +21,7 @@ const LAST_COMMITTED_ROUND_PREFIX: &[u8] = b"last_committed_round";
 const QC_PREFIX: &[u8] = b"qc";
 
 pub enum StoreCommand {
+    WriteBlockIndex(Key, Value),
     WriteBlock(Key, Value),
     WriteTransaction(Key, Value),
     WriteRound(u64),
@@ -27,6 +29,7 @@ pub enum StoreCommand {
     WriteLastCommittedRound(u64),
     WriteQC(Value),
     
+    ReadBlockIndex(Key, oneshot::Sender<StoreResult<Option<Value>>>),
     ReadBlock(Key, oneshot::Sender<StoreResult<Option<Value>>>),
     ReadTransaction(Key, oneshot::Sender<StoreResult<Option<Value>>>),
     ReadRound(oneshot::Sender<StoreResult<Option<Value>>>),
@@ -49,6 +52,7 @@ impl Store {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
         let cfs = vec![
+            ColumnFamilyDescriptor::new(BLOCKS_INDEX_CF, Options::default()),
             ColumnFamilyDescriptor::new(BLOCKS_CF, Options::default()),
             ColumnFamilyDescriptor::new(TRANSACTIONS_CF, Options::default()),
             ColumnFamilyDescriptor::new(CONSENSUS_CF, Options::default()),
@@ -67,11 +71,15 @@ impl Store {
         let mut transaction_obligations = HashMap::<_, VecDeque<oneshot::Sender<_>>>::new();
 
         while let Some(command) = rx.recv().await {
+            let blocks_index_cf = db.cf_handle(BLOCKS_INDEX_CF).unwrap();
             let blocks_cf = db.cf_handle(BLOCKS_CF).unwrap();
             let transactions_cf = db.cf_handle(TRANSACTIONS_CF).unwrap();
             let consensus_cf = db.cf_handle(CONSENSUS_CF).unwrap();
 
             match command {
+                StoreCommand::WriteBlockIndex(key, value) => {
+                    let _ = db.put_cf(&blocks_index_cf, &key, &value);
+                }
                 StoreCommand::WriteBlock(key, value) => {
                     let _ = db.put_cf(&blocks_cf, &key, &value);
                     if let Some(mut senders) = block_obligations.remove(&key) {
@@ -102,6 +110,10 @@ impl Store {
                 }
                 StoreCommand::WriteQC(value) => {
                     let _ = db.put_cf(&consensus_cf, QC_PREFIX, &value);
+                }
+                StoreCommand::ReadBlockIndex(key, sender) => {
+                    let response = db.get_cf(&blocks_index_cf, &key);
+                    let _ = sender.send(response);
                 }
                 StoreCommand::ReadBlock(key, sender) => {
                     let response = db.get_cf(&blocks_cf, &key);
@@ -155,6 +167,11 @@ impl Store {
         }
     }
 
+    pub async fn write_block_index(&mut self, key: Key, value: Value) {
+        if let Err(e) = self.channel.send(StoreCommand::WriteBlockIndex(key, value)).await {
+            panic!("Failed to send Write Block Index command to store: {}", e);
+        }
+    }
     pub async fn write_block(&mut self, key: Key, value: Value) {
         if let Err(e) = self.channel.send(StoreCommand::WriteBlock(key, value)).await {
             panic!("Failed to send Write Block command to store: {}", e);
@@ -184,6 +201,15 @@ impl Store {
         if let Err(e) = self.channel.send(StoreCommand::WriteQC(value)).await {
             panic!("Failed to send Write QC command to store: {}", e);
         }
+    }
+    pub async fn read_block_index(&mut self, key: Key) -> StoreResult<Option<Value>> {
+        let (sender, receiver) = oneshot::channel();
+        if let Err(e) = self.channel.send(StoreCommand::ReadBlockIndex(key, sender)).await {
+            panic!("Failed to send Read Block Index command to store: {}", e);
+        }
+        receiver
+            .await
+            .expect("Failed to receive reply to Read Block Index command from store")
     }
     pub async fn read_block(&mut self, key: Key) -> StoreResult<Option<Value>> {
         let (sender, receiver) = oneshot::channel();
