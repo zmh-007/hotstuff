@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use crypto::Digest;
+use l0::Wp;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 use zk::ToHash;
@@ -21,10 +22,10 @@ impl Processor {
     ) {
         tokio::spawn(async move {
             while let Some(tx_bytes) = rx_transaction.recv().await {
-                let tx = Tx::try_from(&tx_bytes[..]).expect("Failed to deserialize transaction from bytes");
+                let tx: Wp<Tx> = Wp::try_from(&tx_bytes[..]).expect("Failed to deserialize transaction from bytes");
                 // Hash the transaction.
                 let mut b = Vec::new();
-                tx.hash().serialize_be_compressed(&mut b).expect("Failed to serialize transaction hash to bytes");
+                tx.val.hash().serialize_be_compressed(&mut b).expect("Failed to serialize transaction hash to bytes");
 
                 // Store the transaction.
                 store.write_tx(b.clone(), tx_bytes).await;
