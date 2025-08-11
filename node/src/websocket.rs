@@ -330,7 +330,7 @@ impl WebSocketServer {
                         if let Ok(block) = bincode::deserialize::<Block>(&block_data) {
                             let mut txs = Vec::new();
                             for tx_hash in block.payload {
-                                if let Some(tx_data) = Self::get_tx_by_hash(store, &hash).await {
+                                if let Some(tx_data) = Self::get_tx_by_hash(store, &tx_hash.to_vec()).await {
                                     txs.push(tx_data);
                                 }
                                 else {
