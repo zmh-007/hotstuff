@@ -3,6 +3,7 @@ use crate::consensus::{Round, ToField};
 use crate::error::{ConsensusError, ConsensusResult};
 use blst::min_pk::AggregatePublicKey;
 use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
+use l0::Tx;
 use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -67,6 +68,7 @@ impl Block {
     }
 
     pub fn tx_tail(&self) -> Digest {
+        let txg: Tx = self.txg.as_slice().try_into().expect("Failed to convert txg to Tx");
         let fr_iter = std::iter::once(
         Fr::deserialize_be_compressed(&self.qc.last_tail.0[..])
             .expect("Failed to deserialize last_tail")
@@ -79,8 +81,7 @@ impl Block {
         )
         .chain(
             std::iter::once(
-                Fr::deserialize_be_compressed(&self.txg[..])
-                    .expect("Failed to deserialize txg to Fr")
+                txg.hash()
             )
         );
         let tx_tail = fr_iter.hash();

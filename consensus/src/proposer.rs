@@ -7,7 +7,7 @@ use futures::stream::StreamExt as _;
 use l0::{Out, Tx};
 use log::{debug, info};
 use network::{CancelHandler, ReliableSender};
-use zk::{Fr, Vk, ToHash};
+use zk::{Fr, Vk, ToHash, FrSerialization};
 use std::collections::HashSet;
 use crypto::{Digest, PublicKey, SignatureService};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -80,6 +80,12 @@ impl Proposer {
                     data: Vec::new(),
                 },
         };  // TODO: Placeholder for txg
+        let pk_hashes: Vec<_> = self.committee.authorities
+            .iter()
+            .map(|(name, _stake)| name.to_hash()) 
+            .collect();
+        let mut next0 = Vec::new();
+        pk_hashes.hash().serialize_be_compressed(&mut next0).expect("Failed to serialize next0"  );
         // Generate a new block.
         let block = Block::new(
             qc,
@@ -88,7 +94,7 @@ impl Proposer {
             round,
             /* payload */ self.buffer.drain().collect(),
             txg.into(),
-            ([1u8; 32].to_vec(), [1u8; 32].to_vec()), // TODO: Placeholder for next
+            (next0, [1u8; 32].to_vec()), // TODO: Placeholder for next
             self.signature_service.clone(),
         )
         .await;
