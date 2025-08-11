@@ -80,10 +80,13 @@ impl Proposer {
                     data: Vec::new(),
                 },
         };  // TODO: Placeholder for txg
-        let pk_hashes: Vec<_> = self.committee.authorities
-            .iter()
-            .map(|(name, _stake)| name.to_hash()) 
-            .collect();
+        let pk_hashes: Vec<_> = {
+            let mut authorities: Vec<_> = self.committee.authorities.iter().collect();
+            authorities.sort_by(|(a, _), (b, _)| a.cmp(b)); 
+            authorities.into_iter()
+                .map(|(name, _stake)| name.to_hash())
+                .collect()
+        };
         let mut next0 = Vec::new();
         pk_hashes.hash().serialize_be_compressed(&mut next0).expect("Failed to serialize next0"  );
         // Generate a new block.
