@@ -3,7 +3,6 @@ use crate::consensus::{Round, ToField};
 use crate::error::{ConsensusError, ConsensusResult};
 use blst::min_pk::AggregatePublicKey;
 use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
-use l0::Tx;
 use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -68,7 +67,23 @@ impl Block {
     }
 
     pub fn tx_tail(&self) -> Digest {
-        let tx_tail = self.payload.iter().map(|v| {Fr::deserialize_be_compressed(&v.0[..]).expect("Failed to deserialize tx hash to Fr")}).hash();
+        let fr_iter = std::iter::once(
+        Fr::deserialize_be_compressed(&self.qc.last_tail.0[..])
+            .expect("Failed to deserialize last_tail")
+        )
+        .chain(
+            self.payload.iter().map(|v| {
+                Fr::deserialize_be_compressed(&v.0[..])
+                    .expect("Failed to deserialize tx hash to Fr")
+            })
+        )
+        .chain(
+            std::iter::once(
+                Fr::deserialize_be_compressed(&self.txg[..])
+                    .expect("Failed to deserialize txg to Fr")
+            )
+        );
+        let tx_tail = fr_iter.hash();
         let mut b = Vec::new();
         tx_tail.serialize_be_compressed(&mut b).expect("Failed to serialize transaction tail hash to bytes");
         Digest(b.try_into().expect("Failed to convert transaction tail hash bytes to digest"))
@@ -100,14 +115,28 @@ impl Block {
 
 impl Hash for Block {
     fn digest(&self) -> Digest {
-        let tx_tail = self.payload.iter().map(|v| {Fr::deserialize_be_compressed(&v.0[..]).expect("Failed to deserialize tx hash to Fr")}).hash();
-        let txg: Tx = self.txg[..].try_into().expect("Failed to convert txg bytes to Tx");
+        let fr_iter = std::iter::once(
+        Fr::deserialize_be_compressed(&self.qc.last_tail.0[..])
+            .expect("Failed to deserialize last_tail")
+        )
+        .chain(
+            self.payload.iter().map(|v| {
+                Fr::deserialize_be_compressed(&v.0[..])
+                    .expect("Failed to deserialize tx hash to Fr")
+            })
+        )
+        .chain(
+            std::iter::once(
+                Fr::deserialize_be_compressed(&self.txg[..])
+                    .expect("Failed to deserialize txg to Fr")
+            )
+        );
+        let tx_tail = fr_iter.hash();
         let elements = vec![
             self.author.to_hash(),
             self.round.to_field(),
             self.qc.hash.to_field(),
             self.qc.last_tail.to_field(),
-            txg.hash(),
             Fr::deserialize_be_compressed(&self.next.0[..]).expect("Failed to deserialize next1 to Fr"),
             Fr::deserialize_be_compressed(&self.next.1[..]).expect("Failed to deserialize next2 to Fr"),
             tx_tail,
