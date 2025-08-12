@@ -149,6 +149,7 @@ impl Proposer {
             tokio::select! {
                 Some(digest) = self.rx_mempool.recv() => {
                     //if self.buffer.len() < 155 {
+                        debug!("Received tx digest: {:?}", digest);
                         self.buffer.insert(digest);
                     //}
                 },
