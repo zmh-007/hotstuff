@@ -4,8 +4,6 @@ use bytes::Bytes;
 use crypto::PublicKey;
 use network::ReliableSender;
 use std::net::SocketAddr;
-#[cfg(feature = "benchmark")]
-use log::info;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 /// broadcast payloads.
@@ -56,13 +54,6 @@ impl PayloadBroadcaster {
     async fn broadcast(&mut self, transaction: SerializedTransaction) {
         let message = MempoolMessage::Transaction(transaction.clone());
         let serialized = bincode::serialize(&message).expect("Failed to serialize our own transaction");
-        #[cfg(feature = "benchmark")]
-        {
-            // NOTE: This log entry is used to compute performance.
-            info!(
-                "receive transaction"
-            );
-        }
 
         // Broadcast the transaction through the network.
         let (names, addresses): (Vec<_>, _) = self.mempool_addresses.iter().cloned().unzip();

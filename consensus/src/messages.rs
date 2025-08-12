@@ -84,7 +84,7 @@ impl Block {
                 txg.hash()
             )
         );
-        let tx_tail = fr_iter.hash();
+        let tx_tail = fr_iter.reduce(|a, b| (a, b).hash()).expect("Iterator cannot be empty");
         let mut b = Vec::new();
         tx_tail.serialize_be_compressed(&mut b).expect("Failed to serialize transaction tail hash to bytes");
         Digest(b.try_into().expect("Failed to convert transaction tail hash bytes to digest"))
