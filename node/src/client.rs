@@ -1,12 +1,13 @@
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use clap::Parser;
+use crypto::Digest;
 use env_logger::Env;
 use futures::future::join_all;
 use futures::sink::SinkExt as _;
 use log::{info, warn};
 use rand::Rng;
-use zk::Fr;
+use zk::{Fr, FrSerialization, ToHash};
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
@@ -104,7 +105,7 @@ impl Client {
             interval.as_mut().tick().await;
             let now = Instant::now();
 
-            for x in 0..burst {
+            for _ in 0..burst {
                 let tx = Tx{
                     ix: Fr::from(r),
                     iy: Fr::from(r),
@@ -126,7 +127,9 @@ impl Client {
                     val: tx,
                 };
                 r = r + 1;
-                info!("Sending transaction {}, {}", x, r);
+                let mut b = Vec::new();
+                wp.val.clone().hash().serialize_be_compressed(&mut b).expect("Failed to serialize tx hash");
+                info!("Sending transaction {:02x?}", Digest(b.try_into().unwrap()));
                 let tx_bytes: Vec<u8> = wp.into();
                 if let Err(e) = transport.send(Bytes::from(tx_bytes)).await {
                     warn!("Failed to send transaction: {}", e);
