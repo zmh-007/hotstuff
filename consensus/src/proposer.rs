@@ -7,7 +7,7 @@ use futures::stream::StreamExt as _;
 use l0::{Out, Tx};
 use log::{debug, info};
 use network::{CancelHandler, ReliableSender};
-use zk::{Fr, Vk, ToHash, FrSerialization};
+use zk::{Fr, Vk, ToHash};
 use std::collections::HashSet;
 use crypto::{Digest, PublicKey, SignatureService};
 use tokio::sync::mpsc::{Receiver, Sender};
