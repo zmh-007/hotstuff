@@ -129,7 +129,7 @@ impl Client {
                 r = r + 1;
                 let mut b = Vec::new();
                 wp.val.clone().hash().serialize_be_compressed(&mut b).expect("Failed to serialize tx hash");
-                info!("Sending transaction {:02x?}", Digest(b.try_into().unwrap()));
+                info!("Sending transaction {:?}", Digest(b.try_into().unwrap()));
                 let tx_bytes: Vec<u8> = wp.into();
                 if let Err(e) = transport.send(Bytes::from(tx_bytes)).await {
                     warn!("Failed to send transaction: {}", e);

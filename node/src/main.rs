@@ -1,6 +1,7 @@
 mod config;
 mod node;
 mod websocket;
+mod l0;
 
 use crate::node::Node;
 use clap::{Parser, Subcommand};

@@ -1,7 +1,8 @@
 use crate::config::Export as _;
 use crate::config::{Committee, ConfigError, Parameters, Secret};
+use crate::l0::L0;
 use crate::websocket::WebSocketServer;
-use consensus::{Block, Consensus};
+use consensus::{Block, Consensus, FullBlock};
 use log::info;
 use mempool::Mempool;
 use store::Store;
@@ -9,12 +10,17 @@ use tokio::sync::mpsc::{channel, Receiver};
 use crypto::SignatureService;
 use consensus::WebSocketEvent;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
+use std::sync::Arc;
+use zk::{Fr, FrSerialization};
 
 /// The default channel capacity for this module.
 pub const CHANNEL_CAPACITY: usize = 1_000;
 
 pub struct Node {
+    l0: Arc<Mutex<L0>>,
     pub commit: Receiver<Block>,
+    store: Store,
 }
 
 impl Node {
@@ -34,9 +40,6 @@ impl Node {
         let secret = Secret::read(key_file)?;
         let name = secret.name;
         let secret_key = secret.secret;
-
-        // // build circuit
-        // let secret_circuit = SecretCircuit::new(secret_encoded.0);
 
         // Load default parameters if none are specified.
         let parameters = match parameters {
@@ -86,15 +89,20 @@ impl Node {
             committee.consensus,
             parameters.consensus,
             proof_service,
-            store,
+            store.clone(),
             rx_mempool_to_consensus,
             tx_consensus_to_mempool,
             tx_commit,
             tx_websocket_event,
         );
 
+        // initialize L0
+        let next0 = Fr::deserialize_be_compressed(&hex::decode("2092de7b23d178d6c8cf48debe44d6858554160e8eb95f5dba3aee5c3a564bd0").unwrap()[..]).unwrap();
+        let price = Fr::deserialize_be_compressed([1u8; 32].as_ref()).unwrap();
+        let l0 = L0::new(next0, price);
+        let l0 = Arc::new(Mutex::new(l0));
         info!("Node {} successfully booted", name);
-        Ok(Self { commit: rx_commit })
+        Ok(Self { l0, commit: rx_commit, store })
     }
 
     pub fn print_key_file(filename: &str) -> Result<(), ConfigError> {
@@ -102,8 +110,24 @@ impl Node {
     }
 
     pub async fn analyze_block(&mut self) {
-        while let Some(_block) = self.commit.recv().await {
+        while let Some(block) = self.commit.recv().await {
             // This is where we can further process committed block.
+            let mut txs = Vec::new();
+            for tx_hash in block.payload {
+                let tx_data = self.store.read_tx(tx_hash.to_vec()).await.expect(&format!("Failed to read transaction {:?} from store", tx_hash)).unwrap();
+                txs.push(tx_data);
+            }
+            let full_block = FullBlock {
+                qc: block.qc.clone(),
+                tc: block.tc.clone(),
+                author: block.author.clone(),
+                round: block.round,
+                payload: txs,
+                txg: block.txg.clone(),
+                next: block.next.clone(),
+                signature: block.signature.clone(),
+            };
+            self.l0.lock().await.block(full_block).expect(&format!("Failed to process block {:?} in L0", block.qc.last_tail));
         }
     }
 }
