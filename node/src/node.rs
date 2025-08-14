@@ -19,8 +19,8 @@ pub const CHANNEL_CAPACITY: usize = 1_000;
 
 pub struct Node {
     l0: Arc<Mutex<L0>>,
-    pub commit: Receiver<Block>,
     store: Store,
+    pub commit: Receiver<Block>,
 }
 
 impl Node {
@@ -63,13 +63,20 @@ impl Node {
             tx_mempool_to_consensus,
         );
 
+        // initialize L0
+        let next0 = Fr::deserialize_be_compressed(&hex::decode("2092de7b23d178d6c8cf48debe44d6858554160e8eb95f5dba3aee5c3a564bd0").unwrap()[..]).unwrap();
+        let price = Fr::deserialize_be_compressed([1u8; 32].as_ref()).unwrap();
+        let l0 = L0::new(next0, price);
+        let l0 = Arc::new(Mutex::new(l0));
+
         // Start WebSocket server if address is provided
         let tx_websocket_event = if let Some(addr) = websocket_addr {
             let (tx_event, rx_event) = mpsc::channel::<WebSocketEvent>(100);
             let mut websocket_server = WebSocketServer::new(
                 store.clone(), 
                 tx_mempool_transactions.clone(),
-                rx_event
+                rx_event,
+                l0.clone(),
             );
             let ws_addr = addr.clone();
             tokio::spawn(async move {
@@ -96,13 +103,9 @@ impl Node {
             tx_websocket_event,
         );
 
-        // initialize L0
-        let next0 = Fr::deserialize_be_compressed(&hex::decode("2092de7b23d178d6c8cf48debe44d6858554160e8eb95f5dba3aee5c3a564bd0").unwrap()[..]).unwrap();
-        let price = Fr::deserialize_be_compressed([1u8; 32].as_ref()).unwrap();
-        let l0 = L0::new(next0, price);
-        let l0 = Arc::new(Mutex::new(l0));
+
         info!("Node {} successfully booted", name);
-        Ok(Self { l0, commit: rx_commit, store })
+        Ok(Self { l0, store, commit: rx_commit })
     }
 
     pub fn print_key_file(filename: &str) -> Result<(), ConfigError> {
