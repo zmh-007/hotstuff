@@ -3,7 +3,7 @@ use crate::config::{Committee, ConfigError, Parameters, Secret};
 use crate::l0::L0;
 use crate::websocket::WebSocketServer;
 use consensus::{Block, Consensus, FullBlock};
-use log::info;
+use log::{error, info};
 use mempool::Mempool;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
@@ -12,6 +12,7 @@ use consensus::WebSocketEvent;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use std::sync::Arc;
+use std::convert::TryFrom;
 use zk::{Fr, FrSerialization};
 
 /// The default channel capacity for this module.
@@ -66,7 +67,7 @@ impl Node {
         // initialize L0
         let next0 = Fr::deserialize_be_compressed(&hex::decode("2092de7b23d178d6c8cf48debe44d6858554160e8eb95f5dba3aee5c3a564bd0").unwrap()[..]).unwrap();
         let price = Fr::deserialize_be_compressed([1u8; 32].as_ref()).unwrap();
-        let l0 = L0::new(next0, price);
+        let l0 = Self::load_l0(store.clone(), next0, price).await;
         let l0 = Arc::new(Mutex::new(l0));
 
         // Start WebSocket server if address is provided
@@ -131,6 +132,19 @@ impl Node {
                 signature: block.signature.clone(),
             };
             self.l0.lock().await.block(full_block).expect(&format!("Failed to process block {:?} in L0", block.qc.last_tail));
+            self.store.write_chain_state((&*self.l0.lock().await).into()).await;
         }
+    }
+
+    async fn load_l0(mut store: Store, next: Fr, price: Fr) -> L0 {
+        match store.get_chain_state().await {
+            Ok(Some(v)) => {
+                let l0 = L0::try_from(v.as_slice()).expect("Failed to convert chain state to L0");
+                return l0
+            },
+            Ok(None) => info!("No chain state exists, will start from genesis!"),
+            Err(err) => error!("Failed to load chain state {err}"),
+        }
+        L0::new(next, price)
     }
 }

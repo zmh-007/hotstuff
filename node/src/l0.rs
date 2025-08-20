@@ -1,4 +1,6 @@
 use anyhow::Context;
+use anyhow::Error;
+use anyhow::anyhow;
 use anyhow::Result;
 use anyhow::ensure;
 use consensus::FullBlock;
@@ -8,7 +10,9 @@ use l0::Wp;
 use zk::FrSerialization;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::convert::TryInto;
+use std::io::Read;
+use std::io::Write;
+use std::convert::{TryInto, TryFrom};
 use zk::AdditiveGroup;
 use zk::Fr;
 use zk::ToHash;
@@ -53,5 +57,51 @@ impl L0 {
         self.gov = gov;
         self.price = Fr::deserialize_be_compressed(&blk.next.1[..]).expect("failed to deserialize price");
         Ok(())
+    }
+}
+
+impl From<&L0> for Vec<u8> {
+    fn from(value: &L0) -> Self {
+        let mut bytes = Vec::new();
+        value.tail.serialize_be_compressed(&mut bytes).unwrap();
+        value.gov.serialize_be_compressed(&mut bytes).unwrap();
+        value.price.serialize_be_compressed(&mut bytes).unwrap();
+        bytes.write_all(&u32::to_be_bytes(value.utxos.len() as u32)).unwrap();
+        for (k, v) in value.utxos.iter() {
+            k.serialize_be_compressed(&mut bytes).unwrap();
+            v.amount.serialize_be_compressed(&mut bytes).unwrap();
+            v.owner.serialize_be_compressed(&mut bytes).unwrap();
+            bytes.write_all(&u32::to_be_bytes(v.data.len() as u32)).unwrap();
+            v.data.iter().for_each(|v| v.serialize_be_compressed(&mut bytes).unwrap());
+        }
+        bytes
+    }
+}
+
+impl TryFrom<&[u8]> for L0 {
+    type Error = Error;
+    fn try_from(mut value: &[u8]) -> Result<Self> {
+        let tail = Fr::deserialize_be_compressed(&mut value)?;
+        let gov = Fr::deserialize_be_compressed(&mut value)?;
+        let price = Fr::deserialize_be_compressed(&mut value)?;
+        let mut len_bytes = [0u8; 4];
+        value.read_exact(&mut len_bytes).map_err(|err| anyhow!("Failed read size: {}", err))?;
+        let utxos_len = u32::from_be_bytes(len_bytes);
+        let mut utxos = HashMap::with_capacity(utxos_len as usize);
+        for _ in 0..utxos_len {
+            let key = Fr::deserialize_be_compressed(&mut value)?;
+            let amount = Fr::deserialize_be_compressed(&mut value)?;
+            let owner = Fr::deserialize_be_compressed(&mut value)?;
+            let mut len_bytes = [0u8; 4];
+            value.read_exact(&mut len_bytes).map_err(|err| anyhow!("Failed read size: {}", err))?;
+            let data_len = u32::from_be_bytes(len_bytes);
+            let mut out = Out { amount, owner, data: Vec::with_capacity(data_len as usize) };
+            for _ in 0..data_len {
+                let item = Fr::deserialize_be_compressed(&mut value)?;
+                out.data.push(item);
+            }
+            utxos.insert(key, out);
+        }
+        Ok(L0 { utxos, tail, gov, price })
     }
 }

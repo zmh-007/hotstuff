@@ -16,7 +16,6 @@ use consensus::{Block, FullBlock, WebSocketEvent};
 use futures::{SinkExt, StreamExt};
 use hex_str::HexString;
 use tokio::sync::Mutex;
-
 use crate::l0::L0;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
