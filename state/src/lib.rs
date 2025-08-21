@@ -7,6 +7,7 @@ use consensus::FullBlock;
 use l0::Out;
 use l0::Tx;
 use l0::Wp;
+use tokio::sync::MutexGuard;
 use zk::FrSerialization;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -38,7 +39,7 @@ impl L0 {
         ensure!(amti >= amto && amto >= tx.val.ox.amount && amto >= tx.val.oy.amount);
         tx.check()
     }
-    pub fn block(&mut self, blk: FullBlock) -> Result<()> {
+    pub fn block(&mut self, blk: FullBlock, mut cache: MutexGuard<'_, HashSet<Fr>>) -> Result<()> {
         let gov = Fr::deserialize_be_compressed(&blk.next.0[..]).expect("failed to deserialize gov");
         ensure!(gov == self.gov);
         let last_tail = Fr::deserialize_be_compressed(&blk.qc.last_tail.to_vec()[..]).expect("failed to deserialize last tail");
@@ -56,6 +57,9 @@ impl L0 {
         self.exec(txg);
         self.gov = gov;
         self.price = Fr::deserialize_be_compressed(&blk.next.1[..]).expect("failed to deserialize price");
+        for v in r.0 {
+            cache.remove(&v);
+        }
         Ok(())
     }
 }

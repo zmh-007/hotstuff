@@ -1,7 +1,6 @@
 mod config;
 mod node;
 mod websocket;
-mod l0;
 
 use crate::node::Node;
 use clap::{Parser, Subcommand};
@@ -90,14 +89,14 @@ async fn main() {
         } => match Node::new(&committee, &keys, &store, parameters, websocket).await {
             Ok(mut node) => {
                 tokio::spawn(async move {
-                    node.analyze_block().await;
+                    node.start().await;
                 })
                 .await
-                .expect("Failed to analyze committed blocks");
+                .expect("Failed to start node");
             }
             Err(e) => error!("{}", e),
         },
-        Command::Deploy { nodes } => {}
+        Command::Deploy { .. } => {}
         // Command::Deploy { nodes } => match deploy_testbed(nodes) {
         //     Ok(handles) => {
         //         let _ = join_all(handles).await;
