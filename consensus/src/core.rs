@@ -4,17 +4,22 @@ use crate::consensus::{ConsensusMessage, Round};
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::leader::LeaderElector;
 use crate::mempool::MempoolDriver;
-use crate::messages::{Block, Timeout, Vote, WebSocketEvent, QC, TC};
+use crate::messages::{Block, Timeout, UTXOCache, Vote, WebSocketEvent, QC, TC};
 use crate::proposer::ProposerMessage;
 use crate::synchronizer::Synchronizer;
 use crate::timer::Timer;
 use async_recursion::async_recursion;
 use bytes::Bytes;
-use crypto::{Hash, PublicKey, SignatureService};
+use crypto::{Digest, Hash, PublicKey, SignatureService};
+use l0::{Tx, Wp, L0};
 use log::{debug, error, info, warn};
 use network::SimpleSender;
+use tokio::sync::Mutex;
+use zk::FrSerialization;
 use std::cmp::max;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
+use std::convert::TryInto;
+use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -22,6 +27,8 @@ pub struct Core {
     name: PublicKey,
     committee: Committee,
     store: Store,
+    utxo_cache: Arc<Mutex<UTXOCache>>,
+    l0: Arc<Mutex<L0>>,
     signature_service: SignatureService,
     leader_elector: LeaderElector,
     mempool_driver: MempoolDriver,
@@ -47,6 +54,8 @@ impl Core {
         committee: Committee,
         signature_service: SignatureService,
         mut store: Store,
+        utxo_cache: Arc<Mutex<UTXOCache>>,
+        l0: Arc<Mutex<L0>>,
         leader_elector: LeaderElector,
         mempool_driver: MempoolDriver,
         synchronizer: Synchronizer,
@@ -71,6 +80,8 @@ impl Core {
                 committee: committee.clone(),
                 signature_service,
                 store,
+                utxo_cache,
+                l0,
                 leader_elector,
                 mempool_driver,
                 synchronizer,
@@ -95,6 +106,20 @@ impl Core {
     async fn store_block(&mut self, block: &Block) {
         let key = block.digest().to_vec();
         let value = bincode::serialize(block).expect("Failed to serialize block");
+        let parent = block.parent();
+        for tx_hash in &block.payload {
+            let tx_bytes = self.store.read_tx(tx_hash.to_vec()).await.unwrap().unwrap();
+            let tx: Tx = tx_bytes.as_slice().try_into().expect("Failed to deserialize transaction from bytes");
+            let mut utxo_cache = self.utxo_cache.lock().await;
+            let set = utxo_cache.cache.entry(parent.clone()).or_insert_with(|| HashSet::new());
+            let mut ix = Vec::new();
+            tx.ix.serialize_be_compressed(&mut ix).expect("Failed to serialize tx.ix");
+            set.insert(Digest(ix.try_into().expect("Failed to convert tx.ix bytes to digest")));
+            let mut iy = Vec::new();
+            tx.iy.serialize_be_compressed(&mut iy).expect("Failed to serialize tx.iy");
+            set.insert(Digest(iy.try_into().expect("Failed to convert tx.iy bytes to digest")));
+        }
+        self.store.write_utxo_cache(bincode::serialize(&*self.utxo_cache.lock().await).unwrap()).await;
         self.store.write_block(key.clone(), value).await;
         self.store.write_block_index(block.qc.last_tail.to_vec(), key).await;
     }
@@ -403,6 +428,22 @@ impl Core {
 
         // Check the block is correctly formed.
         block.verify(&self.committee)?;
+
+        // Check block transactions
+        let mut tx_ins = HashSet::new();
+        for digest in block.payload.iter() {
+            let tx_bytes = self.store.read_tx(digest.to_vec()).await.expect("Failed to get tx from store").expect("Digest in buffer but not in store");
+            let tx: Wp<Tx> = tx_bytes.as_slice().try_into().expect("Failed to convert tx bytes to Tx");
+            if !tx_ins.insert(tx.val.ix) || !tx_ins.insert(tx.val.iy) || !self.utxo_cache.lock().await.check_tx(&tx) {
+                warn!("invalid or double-spending transaction {:?}", digest);
+                return Err(ConsensusError::InvalidPayload);
+            }
+            let verify_result = self.l0.lock().await.verify(&tx);
+            if let Err(e) = verify_result {
+                warn!("invalid transaction {:?}: {}", digest, e);
+                return Err(ConsensusError::InvalidPayload);
+            }
+        }
 
         // Process the QC. This may allow us to advance round.
         self.process_qc(&block.qc).await;

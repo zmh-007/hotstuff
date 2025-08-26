@@ -1,8 +1,7 @@
-use l0::{Tx, Wp};
+use l0::{Tx, Wp, L0};
 use log::{debug, error, info, warn};
 use mempool::{SerializedTransaction};
 use serde::{Deserialize, Serialize};
-use state::L0;
 use zk::Fr;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;

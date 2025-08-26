@@ -15,12 +15,14 @@ const BLOCKS_CF: &str = "blocks";
 const TRANSACTIONS_CF: &str = "transactions";
 const CONSENSUS_CF: &str = "consensus";
 const CHAIN_STATE_CF: &str = "chain_state";
+const UTXO_CACHE_CF: &str = "utxo_cache";
 
 const ROUND_PREFIX: &[u8] = b"round";
 const LAST_VOTED_ROUND_PREFIX: &[u8] = b"last_voted_round";
 const LAST_COMMITTED_ROUND_PREFIX: &[u8] = b"last_committed_round";
 const QC_PREFIX: &[u8] = b"qc";
 const CHAIN_STATE_PREFIX: &[u8] = b"chain_state";
+const UTXO_CACHE_PREFIX: &[u8] = b"utxo_cache";
 
 pub enum StoreCommand {
     WriteBlockIndex(Key, Value),
@@ -31,6 +33,7 @@ pub enum StoreCommand {
     WriteLastCommittedRound(u64),
     WriteQC(Value),
     WriteChainState(Value),
+    WriteUTXOCache(Value),
     
     ReadBlockIndex(Key, oneshot::Sender<StoreResult<Option<Value>>>),
     ReadBlock(Key, oneshot::Sender<StoreResult<Option<Value>>>),
@@ -40,6 +43,7 @@ pub enum StoreCommand {
     ReadLastCommittedRound(oneshot::Sender<StoreResult<Option<Value>>>),
     ReadQC(oneshot::Sender<StoreResult<Option<Value>>>),
     ReadChainState(oneshot::Sender<StoreResult<Option<Value>>>),
+    ReadUTXOCache(oneshot::Sender<StoreResult<Option<Value>>>),
     
     NotifyReadBlock(Key, oneshot::Sender<StoreResult<Value>>),
     NotifyReadTransaction(Key, oneshot::Sender<StoreResult<Value>>),
@@ -61,6 +65,7 @@ impl Store {
             ColumnFamilyDescriptor::new(TRANSACTIONS_CF, Options::default()),
             ColumnFamilyDescriptor::new(CONSENSUS_CF, Options::default()),
             ColumnFamilyDescriptor::new(CHAIN_STATE_CF, Options::default()),
+            ColumnFamilyDescriptor::new(UTXO_CACHE_CF, Options::default()),
         ];
         let db = Arc::new(DB::open_cf_descriptors(&opts, path, cfs)?);
         let (tx, rx) = channel(100);
@@ -81,6 +86,7 @@ impl Store {
             let transactions_cf = db.cf_handle(TRANSACTIONS_CF).unwrap();
             let consensus_cf = db.cf_handle(CONSENSUS_CF).unwrap();
             let chain_state_cf = db.cf_handle(CHAIN_STATE_CF).unwrap();
+            let utxo_cache_cf = db.cf_handle(UTXO_CACHE_CF).unwrap();
 
             match command {
                 StoreCommand::WriteBlockIndex(key, value) => {
@@ -120,6 +126,9 @@ impl Store {
                 StoreCommand::WriteChainState(value) => {
                     let _ = db.put_cf(&chain_state_cf, CHAIN_STATE_PREFIX, &value);
                 }
+                StoreCommand::WriteUTXOCache(value) => {
+                    let _ = db.put_cf(&utxo_cache_cf, UTXO_CACHE_PREFIX, &value);
+                }
                 StoreCommand::ReadBlockIndex(key, sender) => {
                     let response = db.get_cf(&blocks_index_cf, &key);
                     let _ = sender.send(response);
@@ -150,6 +159,10 @@ impl Store {
                 }
                 StoreCommand::ReadChainState(sender) => {
                     let response = db.get_cf(&chain_state_cf, CHAIN_STATE_PREFIX);
+                    let _ = sender.send(response);
+                }
+                StoreCommand::ReadUTXOCache(sender) => {
+                    let response = db.get_cf(&utxo_cache_cf, UTXO_CACHE_PREFIX);
                     let _ = sender.send(response);
                 }
                 StoreCommand::NotifyReadBlock(key, sender) => {
@@ -218,6 +231,11 @@ impl Store {
     pub async fn write_chain_state(&mut self, value: Value) {
         if let Err(e) = self.channel.send(StoreCommand::WriteChainState(value)).await {
             panic!("Failed to send Write chain state command to store: {}", e);
+        }
+    }
+    pub async fn write_utxo_cache(&mut self, value: Value) {
+        if let Err(e) = self.channel.send(StoreCommand::WriteUTXOCache(value)).await {
+            panic!("Failed to send Write UTXO cache command to store: {}", e);
         }
     }
     pub async fn read_block_index(&mut self, key: Key) -> StoreResult<Option<Value>> {
@@ -333,5 +351,15 @@ impl Store {
         receiver
             .await
             .expect("Failed to receive reply to Read chain state command from store")
+    }
+
+    pub async fn get_utxo_cache(&mut self) -> StoreResult<Option<Value>> {
+        let (sender, receiver) = oneshot::channel();
+        if let Err(e) = self.channel.send(StoreCommand::ReadUTXOCache(sender)).await {
+            panic!("Failed to send Read UTXO cache command to store: {}", e);
+        }
+        receiver
+            .await
+            .expect("Failed to receive reply to Read UTXO cache command from store")
     }
 }

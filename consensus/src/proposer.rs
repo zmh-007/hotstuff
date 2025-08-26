@@ -1,14 +1,17 @@
 use crate::config::{Committee, Stake};
 use crate::consensus::{ConsensusMessage, Round};
-use crate::messages::{Block, QC, TC};
+use crate::messages::{Block, QC, TC, UTXOCache};
 use bytes::Bytes;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
-use l0::{Out, Tx};
-use log::{debug, info};
+use l0::{Out, Tx, Wp, L0};
+use log::{debug, info, warn};
 use network::{CancelHandler, ReliableSender};
+use store::Store;
+use tokio::sync::Mutex;
 use zk::{Fr, Vk, ToHash};
 use std::collections::HashSet;
+use std::sync::Arc;
 use crypto::{Digest, PublicKey, SignatureService};
 use tokio::sync::mpsc::{Receiver, Sender};
 use std::convert::TryInto;
@@ -23,6 +26,9 @@ pub struct Proposer {
     name: PublicKey,
     committee: Committee,
     signature_service: SignatureService,
+    store: Store,
+    l0: Arc<Mutex<L0>>,
+    utxo_cache: Arc<Mutex<UTXOCache>>,
     rx_mempool: Receiver<Digest>,
     rx_message: Receiver<ProposerMessage>,
     tx_loopback: Sender<Block>,
@@ -35,6 +41,9 @@ impl Proposer {
         name: PublicKey,
         committee: Committee,
         signature_service: SignatureService,
+        store: Store,
+        l0: Arc<Mutex<L0>>,
+        utxo_cache: Arc<Mutex<UTXOCache>>,
         rx_mempool: Receiver<Digest>,
         rx_message: Receiver<ProposerMessage>,
         tx_loopback: Sender<Block>,
@@ -44,6 +53,9 @@ impl Proposer {
                 name,
                 committee,
                 signature_service,
+                store,
+                l0,
+                utxo_cache,
                 rx_mempool,
                 rx_message,
                 tx_loopback,
@@ -80,12 +92,29 @@ impl Proposer {
         };  // TODO: Placeholder for txg
         let next0 = hex::decode("2092de7b23d178d6c8cf48debe44d6858554160e8eb95f5dba3aee5c3a564bd0").unwrap();
         // Generate a new block.
+        let mut payload = Vec::new();
+        let mut tx_ins = HashSet::new();
+        for digest in self.buffer.drain() {
+            let tx_bytes = self.store.read_tx(digest.to_vec()).await.expect("Failed to get tx from store").expect("Digest in buffer but not in store");
+            let tx: Wp<Tx> = tx_bytes.as_slice().try_into().expect("Failed to convert tx bytes to Tx");
+            if !tx_ins.insert(tx.val.ix) || !tx_ins.insert(tx.val.iy) || !self.utxo_cache.lock().await.check_tx(&tx) {
+                warn!("Skipping invalid or double-spending transaction {:?}", digest);
+                continue;
+            }
+            let verify_result = self.l0.lock().await.verify(&tx);
+            if let Err(e) = verify_result {
+                warn!("Skipping invalid transaction {:?}: {}", digest, e);
+                continue;
+            }
+            payload.push(digest.clone());
+        }
+        
         let block = Block::new(
             qc,
             tc,
             self.name.clone(),
             round,
-            /* payload */ self.buffer.drain().collect(),
+            payload,
             txg.into(),
             (next0, [1u8; 32].to_vec()), // TODO: Placeholder for next
             self.signature_service.clone(),

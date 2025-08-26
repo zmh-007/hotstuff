@@ -3,9 +3,9 @@ use crate::consensus::{Round, ToField};
 use crate::error::{ConsensusError, ConsensusResult};
 use blst::min_pk::AggregatePublicKey;
 use crypto::{Digest, Hash, PublicKey, Signature, SignatureService};
-use l0::Tx;
+use l0::{Tx, Wp};
 use serde::{Serialize, Deserialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt;
 use zk::{Fr, FrSerialization, ToHash};
@@ -99,7 +99,7 @@ impl Block {
         );
 
         // Check the author proof.
-        verify_signature(&self.digest(), &self.author, &self.signature);
+        verify_signature(&self.digest(), &self.author, &self.signature)?;
 
         // Check the embedded QC.
         if self.qc != QC::genesis() {
@@ -189,7 +189,7 @@ impl Vote {
         );
 
         // Check the proof.
-        verify_signature(&self.digest(), &self.author, &self.signature);
+        verify_signature(&self.digest(), &self.author, &self.signature)?;
         Ok(())
     }
 }
@@ -250,7 +250,7 @@ impl QC {
 
         // Check the signature.
         for (author, sig) in &self.votes {
-            verify_signature(&self.digest(), author, sig);
+            verify_signature(&self.digest(), author, sig)?;
         }
         // Check the aggregated pk.
         let mut public_keys = Vec::with_capacity(self.votes.len());
@@ -261,7 +261,7 @@ impl QC {
         let aggregated_pk = AggregatePublicKey::aggregate(&pks, true).expect("failed to aggregate public keys");
         assert_eq!(self.aggregated_pk, PublicKey(aggregated_pk.to_public_key().to_bytes()), "Aggregated public key does not match the expected value");
         // Check the aggregated signature.
-        verify_signature(&self.digest(), &self.aggregated_pk, &self.aggregated_signature);
+        verify_signature(&self.digest(), &self.aggregated_pk, &self.aggregated_signature)?;
         Ok(())
     }
 }
@@ -324,7 +324,7 @@ impl Timeout {
         );
 
         // Check the proof.
-        verify_signature(&self.digest(), &self.author, &self.signature);
+        verify_signature(&self.digest(), &self.author, &self.signature)?;
 
         // Check the embedded QC.
         if self.high_qc != QC::genesis() {
@@ -385,7 +385,7 @@ impl TC {
             elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize tc vote hash to bytes");
             let digest = Digest(b.try_into().expect("Failed to convert tc vote hash bytes to digest"));
 
-            verify_signature(&digest, author, sig);
+            verify_signature(&digest, author, sig)?;
         }
         Ok(())
     }
@@ -401,12 +401,15 @@ impl fmt::Debug for TC {
     }
 }
 
-fn verify_signature(digest: &Digest, author: &PublicKey, sig: &Signature) {
+fn verify_signature(digest: &Digest, author: &PublicKey, sig: &Signature) -> ConsensusResult<()>{
     let dst = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
     let signature = blst::min_pk::Signature::from_bytes(&sig.0).expect("Invalid signature bytes");
     let pk = blst::min_pk::PublicKey::from_bytes(&author.0).expect("Invalid public key bytes");
     let err = signature.verify(true, &digest.to_vec(), dst, &[], &pk, true);
-    assert_eq!(err, blst::BLST_ERROR::BLST_SUCCESS);
+    if err != blst::BLST_ERROR::BLST_SUCCESS {
+        return Err(ConsensusError::InvalidSignature(author.to_string()));
+    }
+    Ok(())
 }
 
 // fn verify_proof(digest: &Digest, author: &Digest, committee: &Committee, proof: Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>) {
@@ -419,4 +422,21 @@ fn verify_signature(digest: &Digest, author: &PublicKey, sig: &Signature) {
 #[derive(Debug, Clone)]
 pub enum WebSocketEvent {
     BroadcastChainUpdate { hash: Vec<u8> },
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct UTXOCache {
+    pub cache: HashMap<Digest, HashSet<Digest>>,
+}
+
+impl UTXOCache {
+    pub fn check_tx(&self, tx: &Wp<Tx>) -> bool {
+        let mut ix = Vec::new();
+        tx.val.ix.serialize_be_compressed(&mut ix).expect("Failed to serialize ix");
+        let mut iy = Vec::new();
+        tx.val.iy.serialize_be_compressed(&mut iy).expect("Failed to serialize iy");
+        let digest_ix = Digest(ix.try_into().expect("Failed to convert ix bytes to Digest"));
+        let digest_iy = Digest(iy.try_into().expect("Failed to convert iy bytes to Digest"));
+        self.cache.values().any(|set| set.contains(&digest_ix) || set.contains(&digest_iy)) == false
+    }
 }

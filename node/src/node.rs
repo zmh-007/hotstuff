@@ -1,11 +1,10 @@
 use crate::config::Export as _;
 use crate::config::{Committee, ConfigError, Parameters, Secret};
 use crate::websocket::WebSocketServer;
-use consensus::{Block, Consensus, FullBlock};
-use l0::{Tx, Wp};
+use consensus::{Block, Consensus, UTXOCache};
+use l0::{Blk, Tx, Wp, L0};
 use log::{error, info};
 use mempool::Mempool;
-use state::L0;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
 use crypto::SignatureService;
@@ -62,11 +61,15 @@ impl Node {
         // Run the proof service.
         let proof_service = SignatureService::new(secret_key);
 
-        // initialize L0
+        // load L0
         let next0 = Fr::deserialize_be_compressed(&hex::decode("2092de7b23d178d6c8cf48debe44d6858554160e8eb95f5dba3aee5c3a564bd0").unwrap()[..]).unwrap();
         let price = Fr::deserialize_be_compressed([1u8; 32].as_ref()).unwrap();
         let l0 = Self::load_l0(store.clone(), next0, price).await;
         let l0 = Arc::new(Mutex::new(l0));
+
+        // load UTXO cache
+        let utxo_cache = Self::load_utxo_cache(&mut store.clone()).await;
+        let utxo_cache = Arc::new(Mutex::new(utxo_cache));
 
         // Make a new mempool.
         let tx_mempool_transactions = Mempool::spawn(
@@ -108,6 +111,8 @@ impl Node {
             parameters.consensus,
             proof_service,
             store.clone(),
+            l0.clone(),
+            utxo_cache.clone(),
             rx_mempool_to_consensus,
             tx_consensus_to_mempool,
             tx_commit,
@@ -131,21 +136,21 @@ impl Node {
                     let mut txs = Vec::new();
                     for tx_hash in block.payload {
                         let tx_data = self.store.read_tx(tx_hash.to_vec()).await.expect(&format!("Failed to read transaction {:?} from store", tx_hash)).unwrap();
-                        txs.push(tx_data);
+                        let tx: Wp<Tx> = Wp::try_from(&tx_data[..]).expect("Failed to deserialize transaction from bytes");
+                        txs.push(tx);
                     }
-                    let full_block = FullBlock {
-                        qc: block.qc.clone(),
-                        tc: block.tc.clone(),
-                        author: block.author.clone(),
-                        round: block.round,
-                        payload: txs,
-                        txg: block.txg.clone(),
-                        next: block.next.clone(),
-                        signature: block.signature.clone(),
+                    let verified_block = Blk {
+                        last: Fr::deserialize_be_compressed(&block.qc.last_tail.0[..]).expect("Failed to deserialize last_tail to Fr"),
+                        txs,
+                        txg: Tx::try_from(&block.txg[..]).expect("Failed to convert txg to Tx"),
+                        next: (Fr::deserialize_be_compressed(&block.next.0[..]).expect("Failed to deserialize next.0 to Fr"), Fr::deserialize_be_compressed(&block.next.1[..]).expect("Failed to deserialize next.1 to Fr")),
                     };
-                    let cache_guard = self.cache.lock().await;
-                    self.l0.lock().await.block(full_block, cache_guard).expect(&format!("Failed to process block {:?} in L0", block.qc.last_tail));
+                    self.l0.lock().await.verified_block(verified_block).expect(&format!("Failed to process block {:?} in L0", block.qc.last_tail));
                     self.store.write_chain_state((&*self.l0.lock().await).into()).await;
+                    let v = self.store.get_utxo_cache().await.expect("Failed to get UTXO cache from store").unwrap();
+                    let mut utxo_cache = bincode::deserialize::<consensus::UTXOCache>(&v).expect("Failed to deserialize UTXO cache");
+                    utxo_cache.cache.remove(&block.qc.hash);
+                    self.store.write_utxo_cache(bincode::serialize(&utxo_cache).unwrap()).await;
                 }
                 Some((tx, response)) = self.rx_verify.recv() => {
                     // verify tx
@@ -181,5 +186,17 @@ impl Node {
             Err(err) => error!("Failed to load chain state {err}"),
         }
         L0::new(next, price)
+    }
+
+    async fn load_utxo_cache(store: &mut Store) -> UTXOCache {
+        match store.get_utxo_cache().await {
+            Ok(Some(v)) => {
+                let utxo_cache: UTXOCache = bincode::deserialize(&v).unwrap();
+                return utxo_cache;
+            },
+            Ok(None) => info!("No utxo cache exists, init a new one!"),
+            Err(err) => error!("Failed to load chain state {err}"),
+        }
+        UTXOCache::default()
     }
 }

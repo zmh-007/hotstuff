@@ -35,8 +35,8 @@ pub enum ConsensusError {
     #[error("Node {0} is not in the committee")]
     NotInCommittee(String),
 
-    #[error("Invalid proof")]
-    InvalidProof(String),
+    #[error("Invalid signature from {0}")]
+    InvalidSignature(String),
 
     #[error("Received more than one vote from {0}")]
     AuthorityReuse(PublicKey),

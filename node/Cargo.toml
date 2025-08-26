@@ -31,7 +31,6 @@ crypto = { path = "../crypto" }
 store = { path = "../store" }
 consensus = { path = "../consensus" }
 mempool = { path = "../mempool" }
-state = { path = "../state" }
 
 [features]
 benchmark = ["consensus/benchmark", "mempool/benchmark"]

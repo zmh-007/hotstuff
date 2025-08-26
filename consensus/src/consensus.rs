@@ -7,16 +7,20 @@ use crate::mempool::MempoolDriver;
 use crate::messages::{Block, Timeout, Vote, TC};
 use crate::proposer::Proposer;
 use crate::synchronizer::Synchronizer;
+use crate::UTXOCache;
 use async_trait::async_trait;
 use bytes::Bytes;
 use crypto::{Digest, PublicKey, SignatureService};
 use futures::SinkExt as _;
+use l0::L0;
 use log::info;
 use mempool::ConsensusMempoolMessage;
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use zk::Fr;
 use std::error::Error;
+use std::sync::Arc;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use crate::messages::WebSocketEvent;
@@ -56,6 +60,8 @@ impl Consensus {
         parameters: Parameters,
         sugnature_service: SignatureService,
         store: Store,
+        l0: Arc<Mutex<L0>>,
+        utxo_cache: Arc<Mutex<UTXOCache>>,
         rx_mempool: Receiver<Digest>,
         tx_mempool: Sender<ConsensusMempoolMessage>,
         tx_commit: Sender<Block>,
@@ -108,6 +114,8 @@ impl Consensus {
             committee.clone(),
             sugnature_service.clone(),
             store.clone(),
+            utxo_cache.clone(),
+            l0.clone(),
             leader_elector,
             mempool_driver,
             synchronizer,
@@ -124,6 +132,9 @@ impl Consensus {
             name,
             committee.clone(),
             sugnature_service,
+            store.clone(),
+            l0,
+            utxo_cache,
             rx_mempool,
             /* rx_message */ rx_proposer,
             tx_loopback,
