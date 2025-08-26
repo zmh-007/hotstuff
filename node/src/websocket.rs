@@ -2,8 +2,7 @@ use l0::{Tx, Wp, L0};
 use log::{debug, error, info, warn};
 use mempool::{SerializedTransaction};
 use serde::{Deserialize, Serialize};
-use zk::Fr;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::Arc;
 use store::Store;
@@ -92,12 +91,11 @@ pub struct WebSocketServer {
     clients: Arc<RwLock<HashMap<String, ClientConnection>>>,
     message_sender: mpsc::UnboundedSender<ServerMessage>,
     message_receiver: Option<mpsc::UnboundedReceiver<ServerMessage>>,
-    cache: Arc<Mutex<HashSet<Fr>>>,
     l0: Arc<Mutex<L0>>,
 }
 
 impl WebSocketServer {
-    pub fn new(store: Store, mempool_tx: mpsc::Sender<SerializedTransaction>, event_receiver: mpsc::Receiver<WebSocketEvent>, cache: Arc<Mutex<HashSet<Fr>>>, l0: Arc<Mutex<L0>>) -> Self {
+    pub fn new(store: Store, mempool_tx: mpsc::Sender<SerializedTransaction>, event_receiver: mpsc::Receiver<WebSocketEvent>, l0: Arc<Mutex<L0>>) -> Self {
         let (message_sender, message_receiver) = mpsc::unbounded_channel();
         Self {
             store,
@@ -106,7 +104,6 @@ impl WebSocketServer {
             clients: Arc::new(RwLock::new(HashMap::new())),
             message_sender,
             message_receiver: Some(message_receiver),
-            cache,
             l0,
         }
     }
@@ -133,7 +130,6 @@ impl WebSocketServer {
             match listener.accept().await {
                 Ok((stream, addr)) => {
                     debug!("New connection from: {}", addr);
-                    let cache_clone = self.cache.clone();
                     let store_clone = self.store.clone();
                     let l0_clone = self.l0.clone();
                     let mempool_tx_clone = mempool_tx.clone();
@@ -141,7 +137,6 @@ impl WebSocketServer {
                     tokio::spawn(async move {
                         if let Err(e) = Self::handle_connection(
                             stream,
-                            cache_clone,
                             l0_clone, 
                             store_clone, 
                             mempool_tx_clone, 
@@ -160,7 +155,6 @@ impl WebSocketServer {
 
     async fn handle_connection(
         stream: TcpStream,
-        cache: Arc<Mutex<HashSet<Fr>>>,
         l0: Arc<Mutex<L0>>,
         store: Store,
         mempool_tx: mpsc::Sender<SerializedTransaction>,
@@ -189,7 +183,6 @@ impl WebSocketServer {
                             Ok(message) => {
                                 Self::handle_client_message(
                                     message,
-                                    &cache,
                                     &l0,
                                     &mut store_for_receive,
                                     &mempool_tx_for_receive,
@@ -207,7 +200,6 @@ impl WebSocketServer {
                             Ok(message) => {
                                 Self::handle_client_message(
                                     message,
-                                    &cache,
                                     &l0,
                                     &mut store_for_receive,
                                     &mempool_tx_for_receive,
@@ -310,7 +302,6 @@ impl WebSocketServer {
 
     async fn handle_client_message(
         message: Message,
-        cache: &Arc<Mutex<HashSet<Fr>>>,
         l0: &Arc<Mutex<L0>>,
         store: &mut Store,
         mempool_tx: &mpsc::Sender<SerializedTransaction>,
@@ -348,15 +339,6 @@ impl WebSocketServer {
                     let verify_result = l0.lock().await.verify(&tx);
                     if let Err(e) = verify_result {
                         error!("Failed to verify transaction: {}", e);
-                        continue;
-                    }
-                    // verify cache
-                    let cache_guard = cache.lock().await;
-                    if cache_guard.contains(&tx.val.ix) || cache_guard.contains(&tx.val.iy) {
-                        error!(
-                            "Transaction with ix={} or iy={} already exists in cache",
-                            tx.val.ix, tx.val.iy
-                        );
                         continue;
                     }
                     

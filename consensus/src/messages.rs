@@ -412,13 +412,6 @@ fn verify_signature(digest: &Digest, author: &PublicKey, sig: &Signature) -> Con
     Ok(())
 }
 
-// fn verify_proof(digest: &Digest, author: &Digest, committee: &Committee, proof: Proof<GoldilocksField, PoseidonGoldilocksConfig, 2>) {
-//     let vd_encoded = committee.authorities.get(author).map(|auth| auth.vd.clone()).unwrap();
-//     let vd_decoded = general_purpose::STANDARD.decode(&vd_encoded).unwrap();
-//     let vd = VerifierCircuitData::from_bytes(vd_decoded, &DefaultGateSerializer).unwrap();
-//     vd.verify(ProofWithPublicInputs { proof: proof.into(), public_inputs: digest.to_vec_field() }).expect("proof verification failed");
-// }
-
 #[derive(Debug, Clone)]
 pub enum WebSocketEvent {
     BroadcastChainUpdate { hash: Vec<u8> },

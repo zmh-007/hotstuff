@@ -9,9 +9,7 @@ use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
 use crypto::SignatureService;
 use consensus::WebSocketEvent;
-use tokio::sync::oneshot;
 use tokio::sync::Mutex;
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::convert::TryFrom;
 use zk::{Fr, FrSerialization};
@@ -20,11 +18,9 @@ use zk::{Fr, FrSerialization};
 pub const CHANNEL_CAPACITY: usize = 1_000;
 
 pub struct Node {
-    cache: Arc<Mutex<HashSet<Fr>>>,
     l0: Arc<Mutex<L0>>,
     store: Store,
     pub commit: Receiver<Block>,
-    pub rx_verify: Receiver<(Wp<Tx>, oneshot::Sender<bool>)>,
 }
 
 impl Node {
@@ -38,7 +34,6 @@ impl Node {
         let (tx_commit, rx_commit) = channel(CHANNEL_CAPACITY);
         let (tx_consensus_to_mempool, rx_consensus_to_mempool) = channel(CHANNEL_CAPACITY);
         let (tx_mempool_to_consensus, rx_mempool_to_consensus) = channel(CHANNEL_CAPACITY);
-        let (tx_verify, rx_verify) = channel(CHANNEL_CAPACITY);
 
         // Read the committee and secret key from file.
         let committee = Committee::read(committee_file)?;
@@ -55,8 +50,8 @@ impl Node {
         // Make the data store.
         let store = Store::new(store_path).expect("Failed to create store");
 
-        // Init tx-in cache.
-        let cache = Arc::new(Mutex::new(HashSet::new()));
+        // Init mempool cache.
+        // let mempool_cache = Arc::new(Mutex::new(HashSet::new()));
 
         // Run the proof service.
         let proof_service = SignatureService::new(secret_key);
@@ -79,7 +74,6 @@ impl Node {
             store.clone(),
             rx_consensus_to_mempool,
             tx_mempool_to_consensus,
-            tx_verify,
         );
 
         // Start WebSocket server if address is provided
@@ -89,7 +83,6 @@ impl Node {
                 store.clone(), 
                 tx_mempool_transactions.clone(),
                 rx_event,
-                cache.clone(),
                 l0.clone(),
             );
             let ws_addr = addr.clone();
@@ -112,16 +105,15 @@ impl Node {
             proof_service,
             store.clone(),
             l0.clone(),
-            utxo_cache.clone(),
+            utxo_cache,
             rx_mempool_to_consensus,
             tx_consensus_to_mempool,
             tx_commit,
             tx_websocket_event,
         );
 
-
         info!("Node {} successfully booted", name);
-        Ok(Self { cache, l0, store, commit: rx_commit, rx_verify })
+        Ok(Self {l0, store, commit: rx_commit })
     }
 
     pub fn print_key_file(filename: &str) -> Result<(), ConfigError> {
@@ -151,26 +143,6 @@ impl Node {
                     let mut utxo_cache = bincode::deserialize::<consensus::UTXOCache>(&v).expect("Failed to deserialize UTXO cache");
                     utxo_cache.cache.remove(&block.qc.hash);
                     self.store.write_utxo_cache(bincode::serialize(&utxo_cache).unwrap()).await;
-                }
-                Some((tx, response)) = self.rx_verify.recv() => {
-                    // verify tx
-                    let verify_result = self.l0.lock().await.verify(&tx);
-                    if let Err(e) = verify_result {
-                        error!("Failed to verify transaction: {}", e);
-                        let _ = response.send(false);
-                        continue;
-                    }
-                    // verify cache
-                    let mut cache_guard = self.cache.lock().await;
-                    if cache_guard.contains(&tx.val.ix) || cache_guard.contains(&tx.val.iy) {
-                        error!("Transaction with ix={:?} or iy={:?} already exists in cache", tx.val.ix, tx.val.iy);
-                        let _ = response.send(false);
-                        continue;
-                    }
-                    let _ = response.send(true);
-                    // add to cache
-                    cache_guard.insert(tx.val.ix);
-                    cache_guard.insert(tx.val.iy);
                 }
             }
         }

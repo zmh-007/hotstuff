@@ -8,13 +8,11 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use crypto::{Digest, PublicKey};
 use futures::sink::SinkExt as _;
-use l0::{Tx, Wp};
 use log::{info, warn};
 use network::{MessageHandler, Receiver as NetworkReceiver, Writer};
 use std::error::Error;
 use store::Store;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::oneshot;
 use serde::{Serialize, Deserialize};
 
 /// The default channel capacity for each channel of the mempool.
@@ -52,8 +50,6 @@ pub struct Mempool {
     store: Store,
     /// Send messages to consensus.
     tx_consensus: Sender<Digest>,
-    /// Verify tx channel
-    tx_verify: Sender<(Wp<Tx>, oneshot::Sender<bool>)>,
 }
 
 impl Mempool {
@@ -64,7 +60,6 @@ impl Mempool {
         store: Store,
         rx_consensus: Receiver<ConsensusMempoolMessage>,
         tx_consensus: Sender<Digest>,
-        tx_verify: Sender<(Wp<Tx>, oneshot::Sender<bool>)>,
     ) -> Sender<SerializedTransaction> {
         // NOTE: This log entry is used to compute performance.
         parameters.log();
@@ -76,7 +71,6 @@ impl Mempool {
             parameters,
             store,
             tx_consensus,
-            tx_verify,
         };
 
         // Spawn all mempool tasks.
@@ -151,7 +145,6 @@ impl Mempool {
             self.store.clone(),
             /* rx_transaction */ rx_processor,
             /* tx_digest */ self.tx_consensus.clone(),
-            self.tx_verify.clone(),
         );
 
         info!("Mempool listening to client transactions on {}", address);
@@ -191,7 +184,6 @@ impl Mempool {
             self.store.clone(),
             /* rx_transaction */ rx_processor,
             /* tx_digest */ self.tx_consensus.clone(),
-            self.tx_verify.clone(),
         );
 
         info!("Mempool listening to mempool messages on {}", address);
