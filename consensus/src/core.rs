@@ -435,7 +435,7 @@ impl Core {
             let tx_bytes = self.store.read_tx(digest.to_vec()).await.expect("Failed to get tx from store").expect("Digest in buffer but not in store");
             let tx: Wp<Tx> = tx_bytes.as_slice().try_into().expect("Failed to convert tx bytes to Tx");
             if !tx_ins.insert(tx.val.ix) || !tx_ins.insert(tx.val.iy) || !self.utxo_cache.lock().await.check_tx(&tx) {
-                warn!("invalid or double-spending transaction {:?}", digest);
+                warn!("double-spending transaction {:?}", digest);
                 return Err(ConsensusError::InvalidPayload);
             }
             let verify_result = self.l0.lock().await.verify(&tx);
