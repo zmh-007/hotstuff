@@ -105,7 +105,7 @@ impl Client {
             interval.as_mut().tick().await;
             let now = Instant::now();
 
-            for i in 0..burst {
+            for _ in 0..burst {
                 let tx = Tx{
                     ix: Fr::from(r),
                     iy: Fr::from(r+1),

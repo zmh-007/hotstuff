@@ -1,14 +1,12 @@
 [package]
-name = "node"
+name = "websocket"
 version = "0.1.0"
 authors = ["Alberto Sonnino <alberto@sonnino.com>"]
 edition = "2018"
 publish = false
 
 [dependencies]
-zk = { path = "../../monorepo/zk" }
 l0 = { path = "../../monorepo/l0" }
-blst = { git = "https://github.com/supranational/blst", branch = "master", features = ["serde", "serde-secret"] }
 tokio = { version = "1.1.0", features = ["time", "macros", "net", "rt-multi-thread"] }
 tokio-util = { version = "0.7.3", features = ["codec"] }
 log = "0.4.0"
@@ -31,12 +29,3 @@ crypto = { path = "../crypto" }
 store = { path = "../store" }
 consensus = { path = "../consensus" }
 mempool = { path = "../mempool" }
-websocket = { path = "../websocket" }
-
-[features]
-benchmark = ["consensus/benchmark", "mempool/benchmark"]
-
-[[bin]]         
-name = "client"   
-path = "src/client.rs" 
-required-features = ["benchmark"] 

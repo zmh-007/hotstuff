@@ -37,7 +37,7 @@ pub struct Core {
     rx_loopback: Receiver<Block>,
     tx_proposer: Sender<ProposerMessage>,
     tx_commit: Sender<Block>,
-    tx_websocket_event: Option<Sender<WebSocketEvent>>,
+    tx_websocket_event: Sender<WebSocketEvent>,
     round: Round,
     last_voted_round: Round,
     last_committed_round: Round,
@@ -64,7 +64,7 @@ impl Core {
         rx_loopback: Receiver<Block>,
         tx_proposer: Sender<ProposerMessage>,
         tx_commit: Sender<Block>,
-        tx_websocket_event: Option<Sender<WebSocketEvent>>,
+        tx_websocket_event: Sender<WebSocketEvent>,
     ) {
        tokio::spawn(async move {
             let last_round = store.read_round().await.unwrap().unwrap_or_else(|| 1);
@@ -186,16 +186,13 @@ impl Core {
             debug!("Committed {:?}", block);
             
             // push block to ws
-            if let Some(ref tx_ws_event) = self.tx_websocket_event {
-                let hash = block.digest().to_vec();
-                let broadcast_event = WebSocketEvent::BroadcastChainUpdate {
-                    hash: hash.clone()
-                };
-                if let Err(e) = tx_ws_event.send(broadcast_event).await {
-                    error!("Failed to send broadcast event to WebSocket: {}", e);
-                } else {
-                    debug!("Sent broadcast chain update event for hash: {:?}", hash);
-                }
+            let hash = block.digest().to_vec();
+            let broadcast_event = WebSocketEvent::BroadcastChainUpdate {
+                hash: hash.clone()
+            };
+            match self.tx_websocket_event.send(broadcast_event).await {
+                Ok(_) => debug!("Sent broadcast chain update event for hash: {:?}", hash),
+                Err(e) => error!("Failed to send broadcast event to WebSocket: {}", e),
             }
             
             if let Err(e) = self.tx_commit.send(block).await {

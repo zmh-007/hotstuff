@@ -19,7 +19,7 @@ class Key:
 
 
 class Committee:
-    def __init__(self, names, consensus_addr, transactions_addr, mempool_addr):
+    def __init__(self, names, consensus_addr, transactions_addr, mempool_addr, ws_addr):
         inputs = [names, consensus_addr, transactions_addr, mempool_addr]
         assert all(isinstance(x, list) for x in inputs)
         assert all(isinstance(x, str) for y in inputs for x in y)
@@ -29,10 +29,12 @@ class Committee:
         self.consensus = consensus_addr
         self.front = transactions_addr
         self.mempool = mempool_addr
+        self.ws = ws_addr
 
         self.json = {
             'consensus': self._build_consensus(),
-            'mempool': self._build_mempool()
+            'mempool': self._build_mempool(),
+            'websocket': self._build_ws(),
         }
 
     def _build_consensus(self):
@@ -48,9 +50,18 @@ class Committee:
                 'name': n,
                 'stake': 1,
                 'transactions_address': f,
-                'mempool_address': m
+                'mempool_address': m,
             }
         return {'authorities': node, 'epoch': 1}
+    
+    def _build_ws(self):
+        node = {}
+        for n, w in zip(self.names, self.ws):
+            node[n] = {
+                'name': n,
+                'websocket_address': w
+            }
+        return {'authorities': node}
 
     def print(self, filename):
         assert isinstance(filename, str)
@@ -79,7 +90,7 @@ class Committee:
 
 
 class LocalCommittee(Committee):
-    def __init__(self, names, port):
+    def __init__(self, names, port, ws_port):
         assert isinstance(names, list) and all(
             isinstance(x, str) for x in names)
         assert isinstance(port, int)
@@ -87,7 +98,8 @@ class LocalCommittee(Committee):
         consensus = [f'127.0.0.1:{port + i}' for i in range(size)]
         front = [f'127.0.0.1:{port + i + size}' for i in range(size)]
         mempool = [f'127.0.0.1:{port + i + 2*size}' for i in range(size)]
-        super().__init__(names, consensus, front, mempool)
+        ws = [f'127.0.0.1:{ws_port + i}' for i in range(size)]
+        super().__init__(names, consensus, front, mempool, ws)
 
 
 class NodeParameters:

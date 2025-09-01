@@ -11,6 +11,7 @@ from benchmark.utils import Print, BenchError, PathMaker
 
 class LocalBench:
     BASE_PORT = 9000
+    WS_PORT = 10000
 
     def __init__(self, bench_parameters_dict, node_parameters_dict):
         try:
@@ -67,7 +68,7 @@ class LocalBench:
                 keys += [Key.from_file(filename)]
 
             names = [x.name for x in keys]
-            committee = LocalCommittee(names, self.BASE_PORT)
+            committee = LocalCommittee(names, self.BASE_PORT, self.WS_PORT)
             committee.print(PathMaker.committee_file())
 
             self.node_parameters.print(PathMaker.parameters_file())
@@ -93,16 +94,12 @@ class LocalBench:
             # Run the nodes.
             dbs = [PathMaker.db_path(i) for i in range(nodes)]
             node_logs = [PathMaker.node_log_file(i) for i in range(nodes)]
-            # WebSocket
-            WS_BASE_PORT = 10000
-            for i, (key_file, db, log_file) in enumerate(zip(key_files, dbs, node_logs)):
-                ws_addr = f"127.0.0.1:{WS_BASE_PORT + i}"
+            for key_file, db, log_file in zip(key_files, dbs, node_logs):
                 cmd = CommandMaker.run_node(
                     key_file,
                     PathMaker.committee_file(),
                     db,
                     PathMaker.parameters_file(),
-                    websocket=ws_addr,
                     debug=debug
                 )
                 self._background_run(cmd, log_file)

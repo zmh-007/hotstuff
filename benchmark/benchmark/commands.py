@@ -31,9 +31,8 @@ class CommandMaker:
         assert isinstance(parameters, str)
         assert isinstance(debug, bool)
         v = '-vvv' if debug else '-vv'
-        websocket_param = f'--websocket {websocket}' if websocket else ''
         return (f'./node {v} run --keys {keys} --committee {committee} '
-                f'--store {store} --parameters {parameters} {websocket_param}')
+                f'--store {store} --parameters {parameters}')
 
     @staticmethod
     def run_client(address, size, rate, timeout, nodes=[]):

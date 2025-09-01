@@ -1,6 +1,7 @@
+use crypto::PublicKey;
 use l0::{Tx, Wp, L0};
 use log::{debug, error, info, warn};
-use mempool::{SerializedTransaction};
+use mempool::SerializedTransaction;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -16,6 +17,8 @@ use consensus::{Block, FullBlock, WebSocketEvent};
 use futures::{SinkExt, StreamExt};
 use hex_str::HexString;
 use tokio::sync::Mutex;
+
+use crate::config::Committee;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message {
@@ -85,6 +88,8 @@ pub enum ServerMessage {
 }
 
 pub struct WebSocketServer {
+    name: PublicKey,
+    committee: Committee,
     store: Store,
     mempool_tx: mpsc::Sender<SerializedTransaction>,
     event_receiver: Option<mpsc::Receiver<WebSocketEvent>>,
@@ -95,9 +100,11 @@ pub struct WebSocketServer {
 }
 
 impl WebSocketServer {
-    pub fn new(store: Store, mempool_tx: mpsc::Sender<SerializedTransaction>, event_receiver: mpsc::Receiver<WebSocketEvent>, l0: Arc<Mutex<L0>>) -> Self {
+    pub fn new(name: PublicKey, committee: Committee, store: Store, mempool_tx: mpsc::Sender<SerializedTransaction>, event_receiver: mpsc::Receiver<WebSocketEvent>, l0: Arc<Mutex<L0>>) -> Self {
         let (message_sender, message_receiver) = mpsc::unbounded_channel();
         Self {
+            name,
+            committee,
             store,
             mempool_tx,
             event_receiver: Some(event_receiver),
@@ -108,9 +115,15 @@ impl WebSocketServer {
         }
     }
 
-    pub async fn start(&mut self, addr: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let listener = TcpListener::bind(addr).await?;
-        info!("WebSocket server listening on: {}", addr);
+    pub async fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut address = self
+            .committee
+            .ws_address(&self.name)
+            .expect("Our public key is not in the committee");
+        address.set_ip("0.0.0.0".parse().unwrap());
+
+        let listener = TcpListener::bind(address).await?;
+        info!("WebSocket server listening on: {}", address);
         
         let message_receiver = self.message_receiver.take().unwrap();
         let event_receiver = self.event_receiver.take().unwrap();

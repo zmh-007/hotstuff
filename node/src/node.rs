@@ -1,6 +1,6 @@
 use crate::config::Export as _;
 use crate::config::{Committee, ConfigError, Parameters, Secret};
-use crate::websocket::WebSocketServer;
+use websocket::WebSocketServer;
 use consensus::{Block, Consensus, UTXOCache};
 use l0::{Blk, Tx, Wp, L0};
 use log::{error, info};
@@ -29,7 +29,6 @@ impl Node {
         key_file: &str,
         store_path: &str,
         parameters: Option<String>,
-        websocket_addr: Option<String>,
     ) -> Result<Self, ConfigError> {
         let (tx_commit, rx_commit) = channel(CHANNEL_CAPACITY);
         let (tx_consensus_to_mempool, rx_consensus_to_mempool) = channel(CHANNEL_CAPACITY);
@@ -77,24 +76,22 @@ impl Node {
         );
 
         // Start WebSocket server if address is provided
-        let tx_websocket_event = if let Some(addr) = websocket_addr {
+        let tx_websocket_event = {
             let (tx_event, rx_event) = channel::<WebSocketEvent>(100);
             let mut websocket_server = WebSocketServer::new(
+                name,
+                committee.websocket,
                 store.clone(), 
                 tx_mempool_transactions.clone(),
                 rx_event,
                 l0.clone(),
             );
-            let ws_addr = addr.clone();
             tokio::spawn(async move {
-                if let Err(e) = websocket_server.start(&ws_addr).await {
+                if let Err(e) = websocket_server.start().await {
                     log::error!("WebSocket server error: {}", e);
                 }
             });
-            info!("WebSocket server started on: {}", addr);
-            Some(tx_event)
-        } else {
-            None
+            tx_event
         };
 
         // Run the consensus core.

@@ -65,7 +65,7 @@ impl Consensus {
         rx_mempool: Receiver<Digest>,
         tx_mempool: Sender<ConsensusMempoolMessage>,
         tx_commit: Sender<Block>,
-        tx_websocket_event: Option<Sender<WebSocketEvent>>,
+        tx_websocket_event: Sender<WebSocketEvent>,
     ) {
         // NOTE: This log entry is used to compute performance.
         parameters.log();
