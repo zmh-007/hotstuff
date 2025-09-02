@@ -8,7 +8,7 @@ class CommandMaker:
     @staticmethod
     def cleanup():
         return (
-            f'rm -r .db-* ; mkdir -p {PathMaker.results_path()}'
+            f'mkdir -p {PathMaker.results_path()}'
         )
 
     @staticmethod

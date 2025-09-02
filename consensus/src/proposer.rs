@@ -74,6 +74,9 @@ impl Proposer {
     }
 
     async fn make_block(&mut self, round: Round, qc: QC, tc: Option<TC>) {
+        if qc != QC::genesis() {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
         let account1 = Fr::deserialize_be_compressed(hex::decode("43ddbcabd109d20df318b92b14b473912450b9192681f2af3ec348f917929cfd").unwrap().as_slice()).unwrap();
         let account2 = Fr::deserialize_be_compressed(hex::decode("530e4cea319ed6244a8cd4c1d99c7ac7675e47ed8b9831b05b0c735e36410364").unwrap().as_slice()).unwrap();
         let txg = &Tx {
@@ -172,8 +175,6 @@ impl Proposer {
                 break;
             }
         }
-
-        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
     }
 
     async fn run(&mut self) {
