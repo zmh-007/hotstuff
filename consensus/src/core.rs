@@ -426,6 +426,21 @@ impl Core {
         // Check the block is correctly formed.
         block.verify(&self.committee)?;
 
+        // Process the QC. This may allow us to advance round.
+        self.process_qc(&block.qc).await;
+
+        // Process the TC (if any). This may also allow us to advance round.
+        if let Some(ref tc) = block.tc {
+            self.advance_round(tc.round).await;
+        }
+
+        // Let's see if we have the block's data. If we don't, the mempool
+        // will get it and then make us resume processing this block.
+        if !self.mempool_driver.verify(block.clone()).await? {
+            debug!("Processing of {} suspended: missing payload", digest);
+            return Ok(());
+        }
+
         // Check block transactions
         let mut tx_ins = HashSet::new();
         for digest in block.payload.iter() {
@@ -440,21 +455,6 @@ impl Core {
                 warn!("invalid transaction {:?}: {}", digest, e);
                 return Err(ConsensusError::InvalidPayload);
             }
-        }
-
-        // Process the QC. This may allow us to advance round.
-        self.process_qc(&block.qc).await;
-
-        // Process the TC (if any). This may also allow us to advance round.
-        if let Some(ref tc) = block.tc {
-            self.advance_round(tc.round).await;
-        }
-
-        // Let's see if we have the block's data. If we don't, the mempool
-        // will get it and then make us resume processing this block.
-        if !self.mempool_driver.verify(block.clone()).await? {
-            debug!("Processing of {} suspended: missing payload", digest);
-            return Ok(());
         }
 
         // All check pass, we can process this block.
