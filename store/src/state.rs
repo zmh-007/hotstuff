@@ -214,9 +214,8 @@ impl L0State {
     }
 
     pub async fn insert_utxo_with_root(&mut self, root: Fr, key: Fr, out: Out) -> Result<Fr> {
-        let leaf = out.clone().hash();
-        self.update(leaf, StateNode::Leaf(out.clone()));
-        self.update_leaf_with_root(root, key, leaf).await
+        self.update(key, StateNode::Leaf(out.clone()));
+        self.update_leaf_with_root(root, key, key).await
     }
 
     pub async fn delete_utxo_with_root(&mut self, root: Fr, key: Fr) -> Result<Fr> {
