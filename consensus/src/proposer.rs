@@ -9,7 +9,7 @@ use log::{debug, info, warn};
 use network::{CancelHandler, ReliableSender};
 use store::Store;
 use tokio::sync::Mutex;
-use zk::{Fr, FrSerialization};
+use zk::{AdditiveGroup, Fr, FrSerialization};
 use std::collections::HashSet;
 use std::sync::Arc;
 use crypto::{Digest, PublicKey, SignatureService};
@@ -102,7 +102,15 @@ impl Proposer {
         for digest in self.buffer.drain() {
             let tx_bytes = self.store.read_tx(digest.to_vec()).await.expect("Failed to get tx from store").expect("Digest in buffer but not in store");
             let tx: Wp<Tx> = tx_bytes.as_slice().try_into().expect("Failed to convert tx bytes to Tx");
-            if !tx_ins.insert(tx.val.ix) || !tx_ins.insert(tx.val.iy) || !self.utxo_cache.lock().await.check_tx(&tx) {
+            if tx.val.ix != Fr::ZERO && !tx_ins.insert(tx.val.ix) {
+                warn!("Skipping double-spending transaction (ix conflict) {:?}", digest);
+                continue;
+            }
+            if tx.val.iy != Fr::ZERO && !tx_ins.insert(tx.val.iy) {
+                warn!("Skipping double-spending transaction (iy conflict) {:?}", digest);
+                continue;
+            }
+            if !self.utxo_cache.lock().await.check_tx(&tx) {
                 warn!("Skipping double-spending transaction {:?}", digest);
                 continue;
             }

@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt;
-use zk::{Fr, FrSerialization, ToHash};
+use zk::{AdditiveGroup, Fr, FrSerialization, ToHash};
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct FullBlock {
@@ -424,12 +424,30 @@ pub struct UTXOCache {
 
 impl UTXOCache {
     pub fn check_tx(&self, tx: &Wp<Tx>) -> bool {
-        let mut ix = Vec::new();
-        tx.val.ix.serialize_be_compressed(&mut ix).expect("Failed to serialize ix");
-        let mut iy = Vec::new();
-        tx.val.iy.serialize_be_compressed(&mut iy).expect("Failed to serialize iy");
-        let digest_ix = Digest(ix.try_into().expect("Failed to convert ix bytes to Digest"));
-        let digest_iy = Digest(iy.try_into().expect("Failed to convert iy bytes to Digest"));
-        self.cache.values().any(|set| set.contains(&digest_ix) || set.contains(&digest_iy)) == false
+        // Skip ix check if it's 0, otherwise serialize and compute digest
+        let check_ix = tx.val.ix != Fr::ZERO;
+        let digest_ix = if check_ix {
+            let mut ix = Vec::new();
+            tx.val.ix.serialize_be_compressed(&mut ix).expect("Failed to serialize ix");
+            Some(Digest(ix.try_into().expect("Failed to convert ix bytes to Digest")))
+        } else {
+            None
+        };
+
+        // Skip iy check if it's 0, otherwise serialize and compute digest
+        let check_iy = tx.val.iy != Fr::ZERO;
+        let digest_iy = if check_iy {
+            let mut iy = Vec::new();
+            tx.val.iy.serialize_be_compressed(&mut iy).expect("Failed to serialize iy");
+            Some(Digest(iy.try_into().expect("Failed to convert iy bytes to Digest")))
+        } else {
+            None
+        };
+
+        // Check cache for non-zero digests
+        self.cache.values().all(|set| {
+            (!check_ix || !set.contains(&digest_ix.as_ref().unwrap())) &&
+            (!check_iy || !set.contains(&digest_iy.as_ref().unwrap()))
+        })
     }
 }

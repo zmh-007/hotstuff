@@ -15,7 +15,7 @@ use l0::{Tx, Wp, L0};
 use log::{debug, error, info, warn};
 use network::SimpleSender;
 use tokio::sync::Mutex;
-use zk::FrSerialization;
+use zk::{AdditiveGroup, Fr, FrSerialization};
 use std::cmp::max;
 use std::collections::{HashSet, VecDeque};
 use std::convert::TryInto;
@@ -446,8 +446,16 @@ impl Core {
         for digest in block.payload.iter() {
             let tx_bytes = self.store.read_tx(digest.to_vec()).await.expect("Failed to get tx from store").expect("Digest in buffer but not in store");
             let tx: Wp<Tx> = tx_bytes.as_slice().try_into().expect("Failed to convert tx bytes to Tx");
-            if !tx_ins.insert(tx.val.ix) || !tx_ins.insert(tx.val.iy) || !self.utxo_cache.lock().await.check_tx(&tx) {
-                warn!("double-spending transaction {:?}", digest);
+            if tx.val.ix != Fr::ZERO && !tx_ins.insert(tx.val.ix) {
+                warn!("Skipping double-spending transaction (ix conflict) {:?}", digest);
+                return Err(ConsensusError::InvalidPayload);
+            }
+            if tx.val.iy != Fr::ZERO && !tx_ins.insert(tx.val.iy) {
+                warn!("Skipping double-spending transaction (iy conflict) {:?}", digest);
+                return Err(ConsensusError::InvalidPayload);
+            }
+            if !self.utxo_cache.lock().await.check_tx(&tx) {
+                warn!("Skipping double-spending transaction {:?}", digest);
                 return Err(ConsensusError::InvalidPayload);
             }
             let verify_result = self.l0.lock().await.verify(&tx).await;
