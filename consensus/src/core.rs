@@ -109,14 +109,14 @@ impl Core {
         let parent = block.parent();
         for tx_hash in &block.payload {
             let tx_bytes = self.store.read_tx(tx_hash.to_vec()).await.unwrap().unwrap();
-            let tx: Tx = tx_bytes.as_slice().try_into().expect("Failed to deserialize transaction from bytes");
+            let tx: Wp<Tx> = tx_bytes.as_slice().try_into().expect("Failed to deserialize transaction from bytes");
             let mut utxo_cache = self.utxo_cache.lock().await;
             let set = utxo_cache.cache.entry(parent.clone()).or_insert_with(|| HashSet::new());
             let mut ix = Vec::new();
-            tx.ix.serialize_be_compressed(&mut ix).expect("Failed to serialize tx.ix");
+            tx.val.ix.serialize_be_compressed(&mut ix).expect("Failed to serialize tx.ix");
             set.insert(Digest(ix.try_into().expect("Failed to convert tx.ix bytes to digest")));
             let mut iy = Vec::new();
-            tx.iy.serialize_be_compressed(&mut iy).expect("Failed to serialize tx.iy");
+            tx.val.iy.serialize_be_compressed(&mut iy).expect("Failed to serialize tx.iy");
             set.insert(Digest(iy.try_into().expect("Failed to convert tx.iy bytes to digest")));
         }
         self.store.write_utxo_cache(bincode::serialize(&*self.utxo_cache.lock().await).unwrap()).await;
