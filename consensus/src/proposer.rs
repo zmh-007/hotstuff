@@ -76,7 +76,7 @@ impl Proposer {
     async fn make_block(&mut self, round: Round, qc: QC, tc: Option<TC>) {
         //tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         let vk: Vk = hex::decode("91e33e9340aa7e3eb785c21a2baea3066397ca7d3cd792d498dc10cc61a55c5d86d07e40b1b49a0a622297a312a2c90496556736ca9a7284431ea946c9b7f822dd6b05464add282f6a5358dda53fb65d956d531c1d83997fa66933d4740cfbbba48736b143fec6e419a41727d0f1d2b93a82029105864eee3ccc68ab2229491322b422bba12c90fb9357df63798593dd939d715247532fd95ee373020e69047a759c9786340e23ba430595235f87974414a83ce2843abc043918b67439d876e8c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b0cbe536a0026894debe231c3764f33d963d5f741410060da108cd1f46cdb11a6875b2419d836dfd3f0cb0f960523db40000000103").unwrap().as_slice().try_into().unwrap();
-        let txg = Tx {
+        let txg = &Tx {
             ix: Fr::from(10000000000000000u64),
             iy: Fr::from(10000000000000000u64),
             ox: Out {
@@ -101,7 +101,7 @@ impl Proposer {
                 warn!("Skipping double-spending transaction {:?}", digest);
                 continue;
             }
-            let verify_result = self.l0.lock().await.verify(&tx);
+            let verify_result = self.l0.lock().await.verify(&tx).await;
             if let Err(e) = verify_result {
                 warn!("Skipping invalid transaction {:?}: {}", digest, e);
                 continue;

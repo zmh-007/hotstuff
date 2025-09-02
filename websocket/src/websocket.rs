@@ -349,7 +349,7 @@ impl WebSocketServer {
                             continue;
                         }
                     };
-                    let verify_result = l0.lock().await.verify(&tx);
+                    let verify_result = l0.lock().await.verify(&tx).await;
                     if let Err(e) = verify_result {
                         error!("Failed to verify transaction: {}", e);
                         continue;

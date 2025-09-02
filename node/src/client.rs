@@ -121,7 +121,7 @@ impl Client {
                     },
                 };
 
-                let wp = Wp {
+                let wp = &Wp {
                     vk: dummy_vk(),
                     proof: dummy_proof (),
                     val: tx,

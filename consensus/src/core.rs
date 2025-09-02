@@ -435,7 +435,7 @@ impl Core {
                 warn!("double-spending transaction {:?}", digest);
                 return Err(ConsensusError::InvalidPayload);
             }
-            let verify_result = self.l0.lock().await.verify(&tx);
+            let verify_result = self.l0.lock().await.verify(&tx).await;
             if let Err(e) = verify_result {
                 warn!("invalid transaction {:?}: {}", digest, e);
                 return Err(ConsensusError::InvalidPayload);

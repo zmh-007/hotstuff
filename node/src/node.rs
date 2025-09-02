@@ -5,7 +5,7 @@ use consensus::{Block, Consensus, UTXOCache};
 use l0::{Blk, Tx, Wp, L0};
 use log::{error, info};
 use mempool::Mempool;
-use store::Store;
+use store::{L0State, Store};
 use tokio::sync::mpsc::{channel, Receiver};
 use crypto::SignatureService;
 use consensus::WebSocketEvent;
@@ -121,7 +121,7 @@ impl Node {
         loop {
             tokio::select! {
                 Some(block) = self.commit.recv() => {
-                    // This is where we can further process committed block.
+                    // Execute block and save state
                     let mut txs = Vec::new();
                     for tx_hash in block.payload {
                         let tx_data = self.store.read_tx(tx_hash.to_vec()).await.expect(&format!("Failed to read transaction {:?} from store", tx_hash)).unwrap();
@@ -134,8 +134,9 @@ impl Node {
                         txg: Tx::try_from(&block.txg[..]).expect("Failed to convert txg to Tx"),
                         next: (Fr::deserialize_be_compressed(&block.next.0[..]).expect("Failed to deserialize next.0 to Fr"), Fr::deserialize_be_compressed(&block.next.1[..]).expect("Failed to deserialize next.1 to Fr")),
                     };
-                    self.l0.lock().await.verified_block(verified_block).expect(&format!("Failed to process block {:?} in L0", block.qc.last_tail));
-                    self.store.write_chain_state((&*self.l0.lock().await).into()).await;
+                    self.l0.lock().await.block_without_verify(verified_block).await.expect(&format!("Failed to process block {:?} in L0", block.qc.last_tail));
+                    self.l0.lock().await.save_state().await;
+                    // Update UTXO cache in store
                     let v = self.store.get_utxo_cache().await.expect("Failed to get UTXO cache from store").unwrap();
                     let mut utxo_cache = bincode::deserialize::<consensus::UTXOCache>(&v).expect("Failed to deserialize UTXO cache");
                     utxo_cache.cache.remove(&block.qc.hash);
@@ -145,16 +146,11 @@ impl Node {
         }
     }
 
-    async fn load_l0(mut store: Store, next: Fr, price: Fr) -> L0 {
-        match store.get_chain_state().await {
-            Ok(Some(v)) => {
-                let l0 = L0::try_from(v.as_slice()).expect("Failed to convert chain state to L0");
-                return l0
-            },
-            Ok(None) => info!("No chain state exists, will start from genesis!"),
-            Err(err) => error!("Failed to load chain state {err}"),
-        }
-        L0::new(next, price)
+    async fn load_l0(store: Store, next: Fr, price: Fr) -> L0 {
+        let state = L0State::new(store);
+        let mut l0 = L0::new(Box::new(state), next, price);
+        l0.load_from_state().await;
+        l0
     }
 
     async fn load_utxo_cache(store: &mut Store) -> UTXOCache {
