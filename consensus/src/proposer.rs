@@ -9,7 +9,7 @@ use log::{debug, info, warn};
 use network::{CancelHandler, ReliableSender};
 use store::Store;
 use tokio::sync::Mutex;
-use zk::{Fr, Vk, ToHash};
+use zk::{Fr, FrSerialization};
 use std::collections::HashSet;
 use std::sync::Arc;
 use crypto::{Digest, PublicKey, SignatureService};
@@ -74,23 +74,25 @@ impl Proposer {
     }
 
     async fn make_block(&mut self, round: Round, qc: QC, tc: Option<TC>) {
-        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        let vk: Vk = hex::decode("91e33e9340aa7e3eb785c21a2baea3066397ca7d3cd792d498dc10cc61a55c5d86d07e40b1b49a0a622297a312a2c90496556736ca9a7284431ea946c9b7f822dd6b05464add282f6a5358dda53fb65d956d531c1d83997fa66933d4740cfbbba48736b143fec6e419a41727d0f1d2b93a82029105864eee3ccc68ab2229491322b422bba12c90fb9357df63798593dd939d715247532fd95ee373020e69047a759c9786340e23ba430595235f87974414a83ce2843abc043918b67439d876e8c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b0cbe536a0026894debe231c3764f33d963d5f741410060da108cd1f46cdb11a6875b2419d836dfd3f0cb0f960523db40000000103").unwrap().as_slice().try_into().unwrap();
+        let account1 = Fr::deserialize_be_compressed(hex::decode("43ddbcabd109d20df318b92b14b473912450b9192681f2af3ec348f917929cfd").unwrap().as_slice()).unwrap();
+        let account2 = Fr::deserialize_be_compressed(hex::decode("530e4cea319ed6244a8cd4c1d99c7ac7675e47ed8b9831b05b0c735e36410364").unwrap().as_slice()).unwrap();
         let txg = &Tx {
             ix: Fr::from(10000000000000000u64),
             iy: Fr::from(10000000000000000u64),
             ox: Out {
                     amount: Fr::from(10000000000000000u64),
-                    owner: vk.hash(),
+                    owner: account1,
                     data: Vec::new(),
                 },
             oy: Out {
                     amount: Fr::from(10000000000000000u64),
-                    owner: vk.hash(),
+                    owner: account2,
                     data: Vec::new(),
                 },
         };  // TODO: Placeholder for txg
         let next0 = hex::decode("2092de7b23d178d6c8cf48debe44d6858554160e8eb95f5dba3aee5c3a564bd0").unwrap();
+        let mut price = Vec::new();
+        Fr::from(1u64).serialize_be_compressed(&mut price).unwrap();
         // Generate a new block.
         let mut payload = Vec::new();
         let mut tx_ins = HashSet::new();
@@ -116,7 +118,7 @@ impl Proposer {
             round,
             payload,
             txg.into(),
-            (next0, [1u8; 32].to_vec()), // TODO: Placeholder for next
+            (next0, price), // TODO: Placeholder for next
             self.signature_service.clone(),
         )
         .await;
@@ -170,6 +172,8 @@ impl Proposer {
                 break;
             }
         }
+
+        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
     }
 
     async fn run(&mut self) {
