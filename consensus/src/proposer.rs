@@ -4,17 +4,16 @@ use crate::messages::{Block, QC, TC, UTXOCache};
 use bytes::Bytes;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::stream::StreamExt as _;
-use l0::{Out, Tx, Wp, L0};
+use l0::{Out, Tx, Wp};
 use log::{debug, info, warn};
 use network::{CancelHandler, ReliableSender};
 use store::Store;
 use tokio::sync::Mutex;
-use zk::{AdditiveGroup, Fr, FrSerialization};
+use zk::{AdditiveGroup, AsBytes, Fr};
 use std::collections::HashSet;
 use std::sync::Arc;
 use crypto::{Digest, PublicKey, SignatureService};
 use tokio::sync::mpsc::{Receiver, Sender};
-use std::convert::TryInto;
 
 #[derive(Debug)]
 pub enum ProposerMessage {
@@ -27,7 +26,6 @@ pub struct Proposer {
     committee: Committee,
     signature_service: SignatureService,
     store: Store,
-    l0: Arc<Mutex<L0>>,
     utxo_cache: Arc<Mutex<UTXOCache>>,
     rx_mempool: Receiver<Digest>,
     rx_message: Receiver<ProposerMessage>,
@@ -42,7 +40,6 @@ impl Proposer {
         committee: Committee,
         signature_service: SignatureService,
         store: Store,
-        l0: Arc<Mutex<L0>>,
         utxo_cache: Arc<Mutex<UTXOCache>>,
         rx_mempool: Receiver<Digest>,
         rx_message: Receiver<ProposerMessage>,
@@ -54,7 +51,6 @@ impl Proposer {
                 committee,
                 signature_service,
                 store,
-                l0,
                 utxo_cache,
                 rx_mempool,
                 rx_message,
@@ -74,12 +70,12 @@ impl Proposer {
     }
 
     async fn make_block(&mut self, round: Round, qc: QC, tc: Option<TC>) {
-        if qc != QC::genesis() {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        }
-        let account1 = Fr::deserialize_be_compressed(hex::decode("43ddbcabd109d20df318b92b14b473912450b9192681f2af3ec348f917929cfd").unwrap().as_slice()).unwrap();
-        let account2 = Fr::deserialize_be_compressed(hex::decode("530e4cea319ed6244a8cd4c1d99c7ac7675e47ed8b9831b05b0c735e36410364").unwrap().as_slice()).unwrap();
-        let txg = &Tx {
+        // if qc != QC::genesis() {
+        //     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        // }
+        let account1 = Fr::dec(&mut hex::decode("43ddbcabd109d20df318b92b14b473912450b9192681f2af3ec348f917929cfd").unwrap().into_iter()).unwrap();
+        let account2 = Fr::dec(&mut hex::decode("530e4cea319ed6244a8cd4c1d99c7ac7675e47ed8b9831b05b0c735e36410364").unwrap().into_iter()).unwrap();
+        let txg = Tx {
             ix: Fr::from(10000000000000000u64),
             iy: Fr::from(10000000000000000u64),
             ox: Out {
@@ -94,14 +90,13 @@ impl Proposer {
                 },
         };  // TODO: Placeholder for txg
         let next0 = hex::decode("2092de7b23d178d6c8cf48debe44d6858554160e8eb95f5dba3aee5c3a564bd0").unwrap();
-        let mut price = Vec::new();
-        Fr::from(1u64).serialize_be_compressed(&mut price).unwrap();
+        let price = Fr::from(1u64).enc().collect();
         // Generate a new block.
         let mut payload = Vec::new();
         let mut tx_ins = HashSet::new();
         for digest in self.buffer.drain() {
             let tx_bytes = self.store.read_tx(digest.to_vec()).await.expect("Failed to get tx from store").expect("Digest in buffer but not in store");
-            let tx: Wp<Tx> = tx_bytes.as_slice().try_into().expect("Failed to convert tx bytes to Tx");
+            let tx = Wp::<Tx>::dec(&mut tx_bytes.into_iter()).expect("Failed to decode wp transaction");
             if tx.val.ix != Fr::ZERO && !tx_ins.insert(tx.val.ix) {
                 warn!("Skipping double-spending transaction (ix conflict) {:?}", digest);
                 continue;
@@ -114,11 +109,6 @@ impl Proposer {
                 warn!("Skipping double-spending transaction {:?}", digest);
                 continue;
             }
-            let verify_result = self.l0.lock().await.verify(&tx).await;
-            if let Err(e) = verify_result {
-                warn!("Skipping invalid transaction {:?}: {}", digest, e);
-                continue;
-            }
             payload.push(digest.clone());
         }
         
@@ -128,7 +118,7 @@ impl Proposer {
             self.name.clone(),
             round,
             payload,
-            txg.into(),
+            txg.enc().collect(),
             (next0, price), // TODO: Placeholder for next
             self.signature_service.clone(),
         )

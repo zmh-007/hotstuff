@@ -2,24 +2,19 @@ use crate::config::Export as _;
 use crate::config::{Committee, ConfigError, Parameters, Secret};
 use websocket::WebSocketServer;
 use consensus::{Block, Consensus, UTXOCache};
-use l0::{Blk, Tx, Wp, L0};
 use log::{error, info};
 use mempool::Mempool;
-use store::{L0State, Store};
+use store::Store;
 use tokio::sync::mpsc::{channel, Receiver};
 use crypto::SignatureService;
 use consensus::WebSocketEvent;
 use tokio::sync::Mutex;
 use std::sync::Arc;
-use std::convert::TryFrom;
-use zk::{Fr, FrSerialization};
 
 /// The default channel capacity for this module.
 pub const CHANNEL_CAPACITY: usize = 1_000;
 
 pub struct Node {
-    l0: Arc<Mutex<L0>>,
-    store: Store,
     pub commit: Receiver<Block>,
 }
 
@@ -55,12 +50,6 @@ impl Node {
         // Run the proof service.
         let proof_service = SignatureService::new(secret_key);
 
-        // load L0
-        let next0 = Fr::deserialize_be_compressed(&hex::decode("2092de7b23d178d6c8cf48debe44d6858554160e8eb95f5dba3aee5c3a564bd0").unwrap()[..]).unwrap();
-        let price = Fr::deserialize_be_compressed([1u8; 32].as_ref()).unwrap();
-        let l0 = Self::load_l0(store.clone(), next0, price).await;
-        let l0 = Arc::new(Mutex::new(l0));
-
         // load UTXO cache
         let utxo_cache = Self::load_utxo_cache(&mut store.clone()).await;
         let utxo_cache = Arc::new(Mutex::new(utxo_cache));
@@ -84,7 +73,6 @@ impl Node {
                 store.clone(), 
                 tx_mempool_transactions.clone(),
                 rx_event,
-                l0.clone(),
             );
             tokio::spawn(async move {
                 if let Err(e) = websocket_server.start().await {
@@ -101,7 +89,6 @@ impl Node {
             parameters.consensus,
             proof_service,
             store.clone(),
-            l0.clone(),
             utxo_cache,
             rx_mempool_to_consensus,
             tx_consensus_to_mempool,
@@ -110,7 +97,7 @@ impl Node {
         );
 
         info!("Node {} successfully booted", name);
-        Ok(Self {l0, store, commit: rx_commit })
+        Ok(Self {commit: rx_commit })
     }
 
     pub fn print_key_file(filename: &str) -> Result<(), ConfigError> {
@@ -120,37 +107,11 @@ impl Node {
     pub async fn start(&mut self) {
         loop {
             tokio::select! {
-                Some(block) = self.commit.recv() => {
-                    // Execute block and save state
-                    let mut txs = Vec::new();
-                    for tx_hash in block.payload {
-                        let tx_data = self.store.read_tx(tx_hash.to_vec()).await.expect(&format!("Failed to read transaction {:?} from store", tx_hash)).unwrap();
-                        let tx: Wp<Tx> = Wp::try_from(&tx_data[..]).expect("Failed to deserialize transaction from bytes");
-                        txs.push(tx);
-                    }
-                    let verified_block = Blk {
-                        last: Fr::deserialize_be_compressed(&block.qc.last_tail.0[..]).expect("Failed to deserialize last_tail to Fr"),
-                        txs,
-                        txg: Tx::try_from(&block.txg[..]).expect("Failed to convert txg to Tx"),
-                        next: (Fr::deserialize_be_compressed(&block.next.0[..]).expect("Failed to deserialize next.0 to Fr"), Fr::deserialize_be_compressed(&block.next.1[..]).expect("Failed to deserialize next.1 to Fr")),
-                    };
-                    self.l0.lock().await.block_without_verify(verified_block).await.expect(&format!("Failed to process block {:?} in L0", block.qc.last_tail));
-                    self.l0.lock().await.save_state().await;
-                    // Update UTXO cache in store
-                    let v = self.store.get_utxo_cache().await.expect("Failed to get UTXO cache from store").unwrap();
-                    let mut utxo_cache = bincode::deserialize::<consensus::UTXOCache>(&v).expect("Failed to deserialize UTXO cache");
-                    utxo_cache.cache.remove(&block.qc.hash);
-                    self.store.write_utxo_cache(bincode::serialize(&utxo_cache).unwrap()).await;
+                Some(_) = self.commit.recv() => {
+                    // Execute block
                 }
             }
         }
-    }
-
-    async fn load_l0(store: Store, next: Fr, price: Fr) -> L0 {
-        let state = L0State::new(store);
-        let mut l0 = L0::new(Box::new(state), next, price);
-        l0.load_from_state().await;
-        l0
     }
 
     async fn load_utxo_cache(store: &mut Store) -> UTXOCache {

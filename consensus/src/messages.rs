@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt;
-use zk::{AdditiveGroup, Fr, FrSerialization, ToHash};
+use zk::{AdditiveGroup, AsBytes, Fr, ToHash};
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct FullBlock {
@@ -68,14 +68,14 @@ impl Block {
     }
 
     pub fn tx_tail(&self) -> Digest {
-        let txg: Tx = self.txg.as_slice().try_into().expect("Failed to convert txg to Tx");
+        let txg = Tx::dec(&mut self.txg.clone().into_iter()).expect("Failed to decode txg");
         let fr_iter = std::iter::once(
-        Fr::deserialize_be_compressed(&self.qc.last_tail.0[..])
+        Fr::dec(&mut self.qc.last_tail.to_vec().into_iter())
             .expect("Failed to deserialize last_tail")
         )
         .chain(
             self.payload.iter().map(|v| {
-                Fr::deserialize_be_compressed(&v.0[..])
+                Fr::dec(&mut v.to_vec().into_iter())
                     .expect("Failed to deserialize tx hash to Fr")
             })
         )
@@ -85,8 +85,7 @@ impl Block {
             )
         );
         let tx_tail = fr_iter.reduce(|a, b| (a, b).hash()).expect("Iterator cannot be empty");
-        let mut b = Vec::new();
-        tx_tail.serialize_be_compressed(&mut b).expect("Failed to serialize transaction tail hash to bytes");
+        let b: Vec<u8> = tx_tail.enc().collect();
         Digest(b.try_into().expect("Failed to convert transaction tail hash bytes to digest"))
     }
 
@@ -116,21 +115,20 @@ impl Block {
 
 impl Hash for Block {
     fn digest(&self) -> Digest {
-        let tx_tail = self.payload.iter().map(|v| {Fr::deserialize_be_compressed(&v.0[..]).expect("Failed to deserialize tx hash to Fr")}).hash();
-        let txg: Tx = self.txg[..].try_into().expect("Failed to convert txg bytes to Tx");
+        let tx_tail = self.payload.iter().map(|v| {Fr::dec(&mut v.to_vec().into_iter()).expect("Failed to deserialize tx hash to Fr")}).hash();
+        let txg = Tx::dec(&mut self.txg.clone().into_iter()).expect("Failed to decode txg");
         let elements = vec![
             self.author.to_hash(),
             self.round.to_field(),
             self.qc.hash.to_field(),
             self.qc.last_tail.to_field(),
             txg.hash(),
-            Fr::deserialize_be_compressed(&self.next.0[..]).expect("Failed to deserialize next1 to Fr"),
-            Fr::deserialize_be_compressed(&self.next.1[..]).expect("Failed to deserialize next2 to Fr"),
+            Fr::dec(&mut self.next.0.clone().into_iter()).expect("Failed to deserialize next1 to Fr"),
+            Fr::dec(&mut self.next.1.clone().into_iter()).expect("Failed to deserialize next2 to Fr"),
             tx_tail,
         ];
 
-        let mut b = Vec::new();
-        elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize block hash to bytes");
+        let b: Vec<u8> = elements.hash().enc().collect();
         Digest(b.try_into().expect("Failed to convert block hash bytes to digest"))
     }
 }
@@ -201,8 +199,7 @@ impl Hash for Vote {
             self.round.to_field(),
             self.tx_tail.to_field(),
         ];
-        let mut b = Vec::new();
-        elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize vote hash to bytes");
+        let b: Vec<u8> = elements.hash().enc().collect();
         Digest(b.try_into().expect("Failed to convert vote hash bytes to digest"))
     }
 }
@@ -273,8 +270,7 @@ impl Hash for QC {
             self.round.to_field(),
             self.last_tail.to_field(),
         ];
-        let mut b = Vec::new();
-        elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize qc hash to bytes");
+        let b: Vec<u8> = elements.hash().enc().collect();
         Digest(b.try_into().expect("Failed to convert qc hash bytes to digest"))
     }
 }
@@ -340,8 +336,7 @@ impl Hash for Timeout {
             self.round.to_field(),
             self.high_qc.round.to_field(),
         ];
-        let mut b = Vec::new();
-        elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize timeout hash to bytes");
+        let b: Vec<u8> = elements.hash().enc().collect();
         Digest(b.try_into().expect("Failed to convert timeout hash bytes to digest"))
     }
 }
@@ -381,8 +376,7 @@ impl TC {
                 self.round.to_field(),
                 high_qc_round.to_field(),
             ];
-            let mut b = Vec::new();
-            elements.hash().serialize_be_compressed(&mut b).expect("Failed to serialize tc vote hash to bytes");
+            let b: Vec<u8> = elements.hash().enc().collect();
             let digest = Digest(b.try_into().expect("Failed to convert tc vote hash bytes to digest"));
 
             verify_signature(&digest, author, sig)?;
@@ -427,8 +421,7 @@ impl UTXOCache {
         // Skip ix check if it's 0, otherwise serialize and compute digest
         let check_ix = tx.val.ix != Fr::ZERO;
         let digest_ix = if check_ix {
-            let mut ix = Vec::new();
-            tx.val.ix.serialize_be_compressed(&mut ix).expect("Failed to serialize ix");
+            let ix: Vec<u8> = tx.val.ix.enc().collect();
             Some(Digest(ix.try_into().expect("Failed to convert ix bytes to Digest")))
         } else {
             None
@@ -437,8 +430,7 @@ impl UTXOCache {
         // Skip iy check if it's 0, otherwise serialize and compute digest
         let check_iy = tx.val.iy != Fr::ZERO;
         let digest_iy = if check_iy {
-            let mut iy = Vec::new();
-            tx.val.iy.serialize_be_compressed(&mut iy).expect("Failed to serialize iy");
+            let iy: Vec<u8> = tx.val.iy.enc().collect();
             Some(Digest(iy.try_into().expect("Failed to convert iy bytes to Digest")))
         } else {
             None

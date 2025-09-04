@@ -1,10 +1,8 @@
 use crypto::PublicKey;
-use l0::{Tx, Wp, L0};
 use log::{debug, error, info, warn};
 use mempool::SerializedTransaction;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::sync::Arc;
 use store::Store;
 use tokio::net::{TcpListener, TcpStream};
@@ -16,7 +14,6 @@ use tokio_tungstenite::{
 use consensus::{Block, FullBlock, WebSocketEvent};
 use futures::{SinkExt, StreamExt};
 use hex_str::HexString;
-use tokio::sync::Mutex;
 
 use crate::config::Committee;
 
@@ -96,11 +93,10 @@ pub struct WebSocketServer {
     clients: Arc<RwLock<HashMap<String, ClientConnection>>>,
     message_sender: mpsc::UnboundedSender<ServerMessage>,
     message_receiver: Option<mpsc::UnboundedReceiver<ServerMessage>>,
-    l0: Arc<Mutex<L0>>,
 }
 
 impl WebSocketServer {
-    pub fn new(name: PublicKey, committee: Committee, store: Store, mempool_tx: mpsc::Sender<SerializedTransaction>, event_receiver: mpsc::Receiver<WebSocketEvent>, l0: Arc<Mutex<L0>>) -> Self {
+    pub fn new(name: PublicKey, committee: Committee, store: Store, mempool_tx: mpsc::Sender<SerializedTransaction>, event_receiver: mpsc::Receiver<WebSocketEvent>) -> Self {
         let (message_sender, message_receiver) = mpsc::unbounded_channel();
         Self {
             name,
@@ -111,7 +107,6 @@ impl WebSocketServer {
             clients: Arc::new(RwLock::new(HashMap::new())),
             message_sender,
             message_receiver: Some(message_receiver),
-            l0,
         }
     }
 
@@ -144,13 +139,11 @@ impl WebSocketServer {
                 Ok((stream, addr)) => {
                     debug!("New connection from: {}", addr);
                     let store_clone = self.store.clone();
-                    let l0_clone = self.l0.clone();
                     let mempool_tx_clone = mempool_tx.clone();
                     let message_sender_clone = message_sender.clone();
                     tokio::spawn(async move {
                         if let Err(e) = Self::handle_connection(
                             stream,
-                            l0_clone, 
                             store_clone, 
                             mempool_tx_clone, 
                             message_sender_clone
@@ -168,7 +161,6 @@ impl WebSocketServer {
 
     async fn handle_connection(
         stream: TcpStream,
-        l0: Arc<Mutex<L0>>,
         store: Store,
         mempool_tx: mpsc::Sender<SerializedTransaction>,
         message_sender: mpsc::UnboundedSender<ServerMessage>,
@@ -196,7 +188,6 @@ impl WebSocketServer {
                             Ok(message) => {
                                 Self::handle_client_message(
                                     message,
-                                    &l0,
                                     &mut store_for_receive,
                                     &mempool_tx_for_receive,
                                     &message_sender_for_receive,
@@ -213,7 +204,6 @@ impl WebSocketServer {
                             Ok(message) => {
                                 Self::handle_client_message(
                                     message,
-                                    &l0,
                                     &mut store_for_receive,
                                     &mempool_tx_for_receive,
                                     &message_sender_for_receive,
@@ -315,7 +305,6 @@ impl WebSocketServer {
 
     async fn handle_client_message(
         message: Message,
-        l0: &Arc<Mutex<L0>>,
         store: &mut Store,
         mempool_tx: &mpsc::Sender<SerializedTransaction>,
         message_sender: &mpsc::UnboundedSender<ServerMessage>,
@@ -340,21 +329,6 @@ impl WebSocketServer {
                 debug!("Received {} transactions from client {}", transactions.len(), client_id);
                 for tx_hex in transactions {
                     let serialized_transaction: SerializedTransaction = tx_hex.into();
-                    // verify tx
-                    let tx_result: Result<Wp<Tx>, _> = serialized_transaction.as_slice().try_into();
-                    let tx = match tx_result {
-                        Ok(tx) => tx,
-                        Err(e) => {
-                            error!("Failed to deserialize transaction: {}", e);
-                            continue;
-                        }
-                    };
-                    let verify_result = l0.lock().await.verify(&tx).await;
-                    if let Err(e) = verify_result {
-                        error!("Failed to verify transaction: {}", e);
-                        continue;
-                    }
-                    
                     if let Err(e) = mempool_tx.send(serialized_transaction).await {
                         error!("Failed to send transaction to mempool: {}", e);
                     }
